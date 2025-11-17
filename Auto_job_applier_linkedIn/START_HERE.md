@@ -38,10 +38,12 @@ All requested edits have been **automatically applied** to convert this project 
 
 ### Option 1: Development Mode (Fastest)
 ```powershell
-# Run immediately
+# Run Qt GUI application immediately
+python main.py
+# Or directly:
 python gui.py
 ```
-**Requires**: Python 3.11+
+**Requires**: Python 3.11+, PySide6
 
 ### Option 2: Windows Standalone App (Most Professional)
 ```powershell
@@ -49,7 +51,7 @@ python gui.py
 .\build.bat
 
 # Run the .exe
-dist\AutoJobApplier\AutoJobApplier.exe
+dist\AutoJobApplier.exe
 ```
 **Requires**: Python 3.11+ (for build only)
 
@@ -76,36 +78,35 @@ Read in this order:
 
 ---
 
-## 🎨 GUI Features
+## 🎨 Qt GUI Features
 
-### Configuration Tabs
-- **Job Search**: Job title, location, application limits
-- **Credentials**: Email, password, resume file selection
-- **Settings**: Headless, stealth, AI, pause options
+### Modern Interface
+- **Left Navigation Rail**: Dashboard, Jobs, Queue, History, AI, Settings
+- **Top Command Bar**: Run, Pause, Stop buttons
+- **Job Search Form**: Keywords, location, language filters
+- **Progress Tracking**: Applied, failed, skipped statistics
+- **Real-time Progress Bars**: Overall progress and form fill status
 
-### Controls
-- **▶ START** - Begin job applications
-- **⏹ STOP** - Stop running process
-- **🗑 CLEAR** - Clear log
-
-### Logging
-- Color-coded messages (Info/Success/Warning/Error/Debug)
-- Auto-scroll and timestamps
-- Thread-safe processing
+### Advanced Features
+- **CAPTCHA Handling**: Non-modal banner with Resume/Cancel buttons
+- **Thread-safe Logging**: Color-coded messages with timestamps
+- **Background Workers**: Non-blocking UI during automation
+- **Settings Persistence**: Save and restore configurations
+- **Language Filtering**: Prefer English-first jobs option
 
 ---
 
-## 📦 Files Modified
+## 📦 Key Files
 
 | File | Size | Status | Purpose |
 |------|------|--------|---------|
-| gui.py | 18 KB | ✅ Refactored | Production GUI |
-| main.py | 1.3 KB | ✅ New | Windows entry point |
-| build.bat | 2.4 KB | ✅ Updated | Build automation |
-| requirements.txt | 870 B | ✅ Cleaned | Dependencies |
-| QUICKSTART.md | 5 KB | ✅ New | Quick reference |
-| SETUP_GUIDE.md | 8.3 KB | ✅ New | Detailed guide |
-| IMPLEMENTATION_SUMMARY.md | 11.5 KB | ✅ New | Technical doc |
+| gui.py | 19 KB | ✅ Qt GUI | Production Qt interface |
+| main.py | 1.9 KB | ✅ Entry Point | Windows application launcher |
+| runAiBot.py | 66 KB | ✅ Core Engine | Main automation logic |
+| build.bat | 2.4 KB | ✅ Build Script | Windows executable builder |
+| requirements.txt | 487 B | ✅ Dependencies | Python packages |
+| README.md | 9.5 KB | ✅ Documentation | GitHub landing page |
+| DEPLOYMENT.md | 12 KB | ✅ New | Deployment guide |
 
 ---
 
