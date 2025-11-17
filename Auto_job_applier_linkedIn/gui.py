@@ -35,11 +35,20 @@ class MainWindow(QtWidgets.QMainWindow):
         nav_layout = QtWidgets.QVBoxLayout(nav)
         nav_layout.setAlignment(QtCore.Qt.AlignTop)
 
+        # Store navigation buttons for later reference
+        self.nav_buttons = []
+        
         for name in ("Dashboard", "Jobs", "Queue", "History", "AI", "Settings"):
             btn = QtWidgets.QPushButton(name)
             btn.setFixedSize(72, 48)
             btn.setCheckable(True)
+            btn.clicked.connect(lambda checked, n=name: self._on_nav_clicked(n))
             nav_layout.addWidget(btn)
+            self.nav_buttons.append(btn)
+        
+        # Set Dashboard as default active
+        if self.nav_buttons:
+            self.nav_buttons[0].setChecked(True)
 
         # Main content area
         content = QtWidgets.QWidget()
@@ -181,6 +190,27 @@ class MainWindow(QtWidgets.QMainWindow):
         """Setup status bar with elapsed time and performance metrics."""
         self.statusbar_label = QtWidgets.QLabel("Ready")
         self.statusBar().addWidget(self.statusbar_label)
+    
+    def _on_nav_clicked(self, nav_name: str):
+        """Handle navigation button clicks."""
+        # Uncheck all other navigation buttons
+        for btn in self.nav_buttons:
+            if btn.text() != nav_name:
+                btn.setChecked(False)
+        
+        # Log the navigation
+        self._log("info", f"Navigated to: {nav_name}")
+        self.statusbar_label.setText(f"View: {nav_name}")
+        
+        # Show message about feature
+        if nav_name in ("Queue", "History"):
+            self._log("info", f"{nav_name} feature coming soon!")
+        elif nav_name == "AI":
+            self._log("info", "AI settings: Configure in config/secrets.py")
+        elif nav_name == "Settings":
+            self._log("info", "Settings: Edit config/settings.py and config/search.py")
+        elif nav_name == "Jobs":
+            self._log("info", "Jobs view: Use Search & Apply to start finding jobs")
 
     def _on_stop(self):
         self._log("warning", "Stop requested by user")
