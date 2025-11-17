@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+.virtualenv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Sensitive Configuration Files
+config/secrets.py
+config/personals.py
+*.env
+.env.local
+.env.*.local
+
+# Logs and Database
+logs/
+*.log
+*.sqlite
+*.db
+
+# Excel and Resume Files (user data)
+all excels/
+all resumes/
+*.xlsx
+*.xls
+*.docx
+*.pdf
+resumes/
+data/
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.msi
+
+# PyInstaller
+*.manifest
+
+# Backup files
+*_backup.py
+*.bak
+*.old
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Chrome/Browser
+*.crx
+profile/
+chrome_data/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Documentation build
+docs/_build/
+
+# Temporary files
+*.tmp
+temp/
+tmp/

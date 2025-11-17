@@ -1,395 +1,453 @@
-'''
-Auto Job Applier - LinkedIn Automation Tool
-Windows Native GUI Application
+"""
+Minimal PySide6 prototype for Auto Job Applier
+- Left navigation rail
+- Top command bar
+- Job Search form with language filter and "prefer English-first" option
 
-Author:     Sai Vignesh Golla (Original), Modified for Production
-License:    GNU Affero General Public License
-GitHub:     https://github.com/GodsScion/Auto_job_applier_linkedIn
-Version:    2024.12.29.16.00
-'''
-
-import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, filedialog
-import threading
-import queue
-import os
+This is a lightweight prototype to evaluate Qt workflow and UX.
+"""
 import sys
-import csv
-from datetime import datetime
-from pathlib import Path
 
-# Set CSV field size limit
-csv.field_size_limit(1000000)
-
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-# Configuration imports
 try:
-    from config.personals import first_name, middle_name, last_name, phone_number
-    from config.questions import default_resume_path, linkedin_headline, pause_before_submit, pause_at_failed_question
-    from config.search import search_terms, search_location
-    from config.secrets import username, password, use_AI, ai_provider
-    from config.settings import run_in_background, stealth_mode, safe_mode, keep_screen_awake
-except ImportError as e:
-    messagebox.showerror("Import Error", f"Failed to import config files: {str(e)}")
-    sys.exit(1)
-
-# Module imports
-try:
-    from modules.open_chrome import open_browser, close_browser, driver, wait, actions
-    from modules.helpers import print_lg, critical_error_log, make_directories
-    from modules.validator import validate_config
-    from modules.automation_manager import LinkedInSession, JobApplicationManager
-except ImportError as e:
-    messagebox.showerror("Import Error", f"Failed to import modules: {str(e)}")
-    sys.exit(1)
+    from PySide6 import QtCore, QtWidgets, QtGui
+except Exception as e:
+    print("PySide6 is not installed. Install it with: pip install PySide6")
+    raise
 
 
-class JobApplicationGUI:
-    """Production-grade GUI for LinkedIn Job Application Automation"""
-    
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Auto Job Applier - LinkedIn")
-        self.root.geometry("1200x800")
-        self.root.minsize(1000, 700)
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Auto Job Applier — Qt Prototype")
+        self.resize(1100, 750)
+        self._setup_ui()
+        self._setup_statusbar()
+
+    def _setup_ui(self):
+        central = QtWidgets.QWidget()
+        main_layout = QtWidgets.QHBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Left navigation (rail)
+        nav = QtWidgets.QFrame()
+        nav.setFixedWidth(84)
+        nav.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        nav_layout = QtWidgets.QVBoxLayout(nav)
+        nav_layout.setAlignment(QtCore.Qt.AlignTop)
+
+        for name in ("Dashboard", "Jobs", "Queue", "History", "AI", "Settings"):
+            btn = QtWidgets.QPushButton(name)
+            btn.setFixedSize(72, 48)
+            btn.setCheckable(True)
+            nav_layout.addWidget(btn)
+
+        # Main content area
+        content = QtWidgets.QWidget()
+        content_layout = QtWidgets.QVBoxLayout(content)
+
+        # Top toolbar
+        toolbar = QtWidgets.QFrame()
+        toolbar.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        t_layout = QtWidgets.QHBoxLayout(toolbar)
+        title = QtWidgets.QLabel("Auto Job Applier")
+        title.setStyleSheet("font-weight: bold; font-size: 18px;")
+        t_layout.addWidget(title)
+        t_layout.addStretch()
+        run_btn = QtWidgets.QPushButton("Run")
+        pause_btn = QtWidgets.QPushButton("Pause")
+        stop_btn = QtWidgets.QPushButton("Stop")
+        t_layout.addWidget(run_btn)
+        t_layout.addWidget(pause_btn)
+        t_layout.addWidget(stop_btn)
+
+        # Job Search form
+        form = QtWidgets.QGroupBox("Job Search")
+        form_layout = QtWidgets.QGridLayout(form)
+
+        form_layout.addWidget(QtWidgets.QLabel("Keywords:"), 0, 0)
+        self.keywords_edit = QtWidgets.QLineEdit()
+        form_layout.addWidget(self.keywords_edit, 0, 1)
+
+        form_layout.addWidget(QtWidgets.QLabel("Location:"), 1, 0)
+        self.location_edit = QtWidgets.QLineEdit()
+        form_layout.addWidget(self.location_edit, 1, 1)
+
+        form_layout.addWidget(QtWidgets.QLabel("Language:"), 2, 0)
+        self.language_combo = QtWidgets.QComboBox()
+        self.language_combo.addItems(["", "English", "Spanish", "French", "German", "Portuguese", "Hindi", "Chinese"])
+        self.language_combo.setCurrentText("English")
+        form_layout.addWidget(self.language_combo, 2, 1)
+
+        self.pref_english_chk = QtWidgets.QCheckBox("Prefer English-first jobs")
+        self.pref_english_chk.setChecked(True)
+        form_layout.addWidget(self.pref_english_chk, 3, 1)
+
+        self.easy_apply_chk = QtWidgets.QCheckBox("Easy Apply only")
+        self.easy_apply_chk.setChecked(True)
+        form_layout.addWidget(self.easy_apply_chk, 4, 1)
+
+        self.max_apply_spin = QtWidgets.QSpinBox()
+        self.max_apply_spin.setRange(1, 1000)
+        self.max_apply_spin.setValue(30)
+        form_layout.addWidget(QtWidgets.QLabel("Max Applications:"), 5, 0)
+        form_layout.addWidget(self.max_apply_spin, 5, 1)
+
+        search_btn = QtWidgets.QPushButton("Search & Apply")
+        form_layout.addWidget(search_btn, 6, 0, 1, 2)
+
+        # logs area
+        logs = QtWidgets.QGroupBox("Logs")
+        logs_layout = QtWidgets.QVBoxLayout(logs)
+        self.log_text = QtWidgets.QTextEdit()
+        self.log_text.setReadOnly(True)
+        logs_layout.addWidget(self.log_text)
+
+        content_layout.addWidget(toolbar)
+        content_layout.addWidget(form)
         
-        # Set window icon if available
+        # Progress section
+        progress_box = QtWidgets.QGroupBox("Progress")
+        progress_layout = QtWidgets.QVBoxLayout(progress_box)
+        
+        # Application count display
+        stats_layout = QtWidgets.QHBoxLayout()
+        self.applied_label = QtWidgets.QLabel("Applied: 0")
+        self.failed_label = QtWidgets.QLabel("Failed: 0")
+        self.skipped_label = QtWidgets.QLabel("Skipped: 0")
+        self.current_job_label = QtWidgets.QLabel("Current: —")
+        stats_layout.addWidget(self.applied_label)
+        stats_layout.addWidget(self.failed_label)
+        stats_layout.addWidget(self.skipped_label)
+        stats_layout.addWidget(self.current_job_label)
+        stats_layout.addStretch()
+        progress_layout.addLayout(stats_layout)
+        
+        # Overall progress bar
+        overall_layout = QtWidgets.QHBoxLayout()
+        overall_layout.addWidget(QtWidgets.QLabel("Overall:"))
+        self.overall_progress = QtWidgets.QProgressBar()
+        self.overall_progress.setRange(0, 100)
+        self.overall_progress.setValue(0)
+        overall_layout.addWidget(self.overall_progress)
+        progress_layout.addLayout(overall_layout)
+        
+        # Form fill progress bar
+        form_layout_prog = QtWidgets.QHBoxLayout()
+        form_layout_prog.addWidget(QtWidgets.QLabel("Form Fill:"))
+        self.form_progress = QtWidgets.QProgressBar()
+        self.form_progress.setRange(0, 100)
+        self.form_progress.setValue(0)
+        form_layout_prog.addWidget(self.form_progress)
+        progress_layout.addLayout(form_layout_prog)
+        
+        content_layout.addWidget(progress_box)
+        content_layout.addWidget(logs)
+        content_layout.addStretch()
+
+        main_layout.addWidget(nav)
+        main_layout.addWidget(content, 1)
+
+        self.setCentralWidget(central)
+
+        # connect
+        search_btn.clicked.connect(self._on_search)
+        run_btn.clicked.connect(lambda: self._log("info", "Run pressed"))
+        pause_btn.clicked.connect(lambda: self._log("warning", "Pause pressed"))
+        stop_btn.clicked.connect(self._on_stop)
+
+        # Worker reference
+        self.worker = None
+
+        # CAPTCHA banner (hidden by default). Non-modal banner with Resume/Cancel.
+        self.captcha_banner = QtWidgets.QFrame()
+        self.captcha_banner.setFrameShape(QtWidgets.QFrame.StyledPanel)
+        self.captcha_banner.setStyleSheet("background-color: #FFF4E5; border: 1px solid #E6B800;")
+        banner_layout = QtWidgets.QHBoxLayout(self.captcha_banner)
+        self.captcha_label = QtWidgets.QLabel("")
+        banner_layout.addWidget(self.captcha_label)
+        banner_layout.addStretch()
+        self.captcha_resume_btn = QtWidgets.QPushButton("Resume")
+        self.captcha_cancel_btn = QtWidgets.QPushButton("Cancel")
+        banner_layout.addWidget(self.captcha_resume_btn)
+        banner_layout.addWidget(self.captcha_cancel_btn)
+        self.captcha_banner.setVisible(False)
+        # add banner at top of content layout so it's visible while automation runs
+        content_layout.insertWidget(0, self.captcha_banner)
+
+        # Connect banner buttons
+        self.captcha_resume_btn.clicked.connect(self._on_captcha_resume_clicked)
+        self.captcha_cancel_btn.clicked.connect(self._on_captcha_cancel_clicked)
+    def _setup_statusbar(self):
+        """Setup status bar with elapsed time and performance metrics."""
+        self.statusbar_label = QtWidgets.QLabel("Ready")
+        self.statusBar().addWidget(self.statusbar_label)
+
+    def _on_stop(self):
+        self._log("warning", "Stop requested by user")
+        # Best-effort: close browser to interrupt automation
         try:
-            icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.ico")
-            if os.path.exists(icon_path):
-                self.root.iconbitmap(icon_path)
+            from modules.automation_manager import request_cancel_current
+            cancelled = request_cancel_current()
+            if cancelled:
+                self._log("info", "Requested cooperative cancellation")
+            else:
+                # fallback to close browser
+                from modules.open_chrome import close_browser
+                close_browser()
+                self._log("info", "Requested browser close (fallback)")
+        except Exception as e:
+            self._log("error", f"Error requesting stop: {e}")
+
+    def _log(self, level: str, msg: str):
+        self.log_text.append(f"[{level.upper()}] {msg}")
+
+    def _on_search(self):
+        keywords = self.keywords_edit.text()
+        location = self.location_edit.text()
+        language = self.language_combo.currentText()
+        prefer_english = self.pref_english_chk.isChecked()
+        easy_apply = self.easy_apply_chk.isChecked()
+        max_apps = self.max_apply_spin.value()
+
+        self._log("info", f"Search: keywords='{keywords}' location='{location}' language='{language}' prefer_english={prefer_english} easy_apply={easy_apply} max={max_apps}")
+
+        # Start background worker to run automation
+        if self.worker and self.worker.isRunning():
+            self._log("warning", "Automation already running")
+            return
+
+        # Prepare form_data minimally (could be extended to collect more fields)
+        form_data = {}
+
+        # persist the search settings
+        try:
+            from modules.settings_manager import save_search_settings
+            save_search_settings({
+                "search_terms": [s.strip() for s in keywords.split(",") if s.strip()],
+                "search_location": location,
+                "preferred_language": language,
+                "prefer_english_first": prefer_english,
+                "easy_apply_only": easy_apply,
+                "switch_number": max_apps,
+            })
+            self._log("debug", "Search settings saved")
+        except Exception as e:
+            self._log("error", f"Failed to save settings: {e}")
+
+        self.worker = AutomationWorker(
+            job_title=keywords,
+            location=location,
+            max_applications=max_apps,
+            form_data=form_data,
+            language=language,
+            prefer_english=prefer_english
+        )
+        self.worker.log_signal.connect(lambda lvl, msg: self._log(lvl, msg))
+        self.worker.captcha_pause_signal.connect(self._on_captcha_pause)
+        self.worker.progress_signal.connect(self._on_worker_progress)
+        self.worker.form_progress_signal.connect(self._on_form_progress)
+        self.worker.finished_signal.connect(self._on_worker_finished)
+        self.worker.start()
+
+    def _on_worker_finished(self, stats: dict):
+        self._log("success", f"Automation finished: {stats}")
+        self.overall_progress.setValue(100)
+        self.statusbar_label.setText(f"Complete — Applied: {stats.get('applied', 0)}, Failed: {stats.get('failed', 0)}, Skipped: {stats.get('skipped', 0)}")
+
+    def _on_worker_progress(self, applied: int, failed: int, skipped: int, current_job: str):
+        """Update progress labels and overall progress bar."""
+        self.applied_label.setText(f"Applied: {applied}")
+        self.failed_label.setText(f"Failed: {failed}")
+        self.skipped_label.setText(f"Skipped: {skipped}")
+        self.current_job_label.setText(f"Current: {current_job[:40]}")
+        
+        # Update overall progress (rough estimate based on total so far)
+        total = applied + failed + skipped
+        if total > 0:
+            progress_pct = min(int((total / max(self.max_apply_spin.value(), 1)) * 100), 99)
+            self.overall_progress.setValue(progress_pct)
+            self.statusbar_label.setText(f"Processing... Applied: {applied} | Failed: {failed} | Skipped: {skipped}")
+
+    def _on_form_progress(self, pct: int):
+        """Update form fill progress bar (0-100%)."""
+        self.form_progress.setValue(pct)
+    def _on_captcha_pause(self, message: str):
+        """Handle CAPTCHA pause notification from worker.
+
+        Show a non-modal banner with Resume/Cancel and update status bar. The banner
+        allows the user to solve CAPTCHA in the browser and press Resume.
+        """
+        try:
+            # Update banner text and make visible
+            msg = message or "CAPTCHA detected. Please solve the CAPTCHA in the browser window."
+            # Ensure banner exists (in case called earlier than UI setup)
+            try:
+                self.captcha_label.setText(msg)
+                self.captcha_banner.setVisible(True)
+            except Exception:
+                # If any issue with banner, fallback to modal dialog
+                dlg = QtWidgets.QMessageBox(self)
+                dlg.setIcon(QtWidgets.QMessageBox.Warning)
+                dlg.setWindowTitle("CAPTCHA detected — Action required")
+                dlg.setText("CAPTCHA detected during automation. Please solve the CAPTCHA in the browser window, then press Resume.")
+                if message:
+                    dlg.setInformativeText(message)
+                resume_btn = dlg.addButton("Resume", QtWidgets.QMessageBox.AcceptRole)
+                cancel_btn = dlg.addButton("Cancel", QtWidgets.QMessageBox.RejectRole)
+                dlg.setDefaultButton(resume_btn)
+                dlg.exec()
+                if dlg.clickedButton() == resume_btn:
+                    try:
+                        from modules.error_recovery import request_resume
+                        request_resume()
+                        self._log("info", "User requested resume after CAPTCHA")
+                    except Exception as e:
+                        self._log("error", f"Failed to request resume: {e}")
+                else:
+                    self._log("warning", "User cancelled resume after CAPTCHA")
+
+            self.statusbar_label.setText("Paused — CAPTCHA detected")
+            self._log("warning", f"CAPTCHA paused: {msg}")
+        except Exception as e:
+            self._log("error", f"Error showing CAPTCHA banner: {e}")
+
+    def _on_captcha_resume_clicked(self):
+        """User clicked Resume on the banner; signal recovery manager and hide banner."""
+        try:
+            from modules.error_recovery import request_resume
+            ok = request_resume()
+            if ok:
+                self._log("info", "User requested resume after CAPTCHA")
+            else:
+                self._log("warning", "Resume requested but no recovery manager present")
+        except Exception as e:
+            self._log("error", f"Failed to request resume: {e}")
+        finally:
+            try:
+                self.captcha_banner.setVisible(False)
+                self.statusbar_label.setText("Resuming...")
+            except Exception:
+                pass
+
+    def _on_captcha_cancel_clicked(self):
+        """User clicked Cancel on banner; hide banner and leave manager to timeout or handle."""
+        try:
+            self.captcha_banner.setVisible(False)
+            self.statusbar_label.setText("Automation paused (user cancelled resume)")
+            self._log("warning", "User cancelled resume after CAPTCHA")
+        except Exception as e:
+            self._log("error", f"Error handling CAPTCHA cancel: {e}")
+
+
+class AutomationWorker(QtCore.QThread):
+    """Background worker that runs the LinkedIn automation workflow."""
+
+    log_signal = QtCore.Signal(str, str)  # level, message
+    finished_signal = QtCore.Signal(dict)
+    progress_signal = QtCore.Signal(int, int, int, str)  # applied, failed, skipped, current_job
+    form_progress_signal = QtCore.Signal(int)  # form fill percentage (0-100)
+    captcha_pause_signal = QtCore.Signal(str)  # message when CAPTCHA pause required
+
+    def __init__(self, job_title: str, location: str, max_applications: int, form_data: dict, language: str = "", prefer_english: bool = False):
+        super().__init__()
+        self.job_title = job_title
+        self.location = location
+        self.max_applications = max_applications
+        self.form_data = form_data
+        self.language = language
+        self.prefer_english = prefer_english
+
+    def emit_log(self, message: str, level: str = "info"):
+        try:
+            self.log_signal.emit(level, message)
         except Exception:
             pass
-        
-        # Application state
-        self.is_running = False
-        self.driver = None
-        self.wait = None
-        self.actions = None
-        self.log_queue = queue.Queue()
-        
-        # Setup styles
-        self.setup_styles()
-        
-        # Build UI
-        self.setup_ui()
-        
-        # Start log queue checker
-        self.check_log_queue()
-        
-        self.log("=== Auto Job Applier Started ===")
-        self.log(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    def setup_styles(self):
-        """Configure ttk styles for modern look."""
-        style = ttk.Style()
-        style.theme_use("clam")
-        
-        # Define colors
-        style.configure("TLabel", font=("Segoe UI", 9))
-        style.configure("Title.TLabel", font=("Segoe UI", 11, "bold"))
-        style.configure("Heading.TLabel", font=("Segoe UI", 10, "bold"))
-        style.configure("TButton", font=("Segoe UI", 9))
-        style.configure("Accent.TButton", font=("Segoe UI", 9, "bold"))
-    
-    def setup_ui(self):
-        """Create the main GUI layout."""
-        
-        # Main container with paned window
-        main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # ==================== LEFT PANEL - CONFIGURATION ====================
-        left_frame = ttk.Frame(main_paned)
-        main_paned.add(left_frame, weight=1)
-        
-        # Notebook (tabs) for different config sections
-        config_notebook = ttk.Notebook(left_frame)
-        config_notebook.pack(fill=tk.BOTH, expand=True)
-        
-        # Tab 1: Job Search
-        search_frame = ttk.Frame(config_notebook, padding="15")
-        config_notebook.add(search_frame, text="Job Search")
-        search_frame.columnconfigure(1, weight=1)
-        
-        ttk.Label(search_frame, text="Job Title:", style="Heading.TLabel").grid(row=0, column=0, sticky=tk.W, pady=10)
-        self.job_title_var = tk.StringVar(value=search_terms[0] if search_terms else "Python Developer")
-        ttk.Entry(search_frame, textvariable=self.job_title_var, width=30).grid(row=0, column=1, sticky=(tk.W, tk.E), pady=10)
-        
-        ttk.Label(search_frame, text="Location:", style="Heading.TLabel").grid(row=1, column=0, sticky=tk.W, pady=10)
-        self.location_var = tk.StringVar(value=search_location or "United States")
-        ttk.Entry(search_frame, textvariable=self.location_var, width=30).grid(row=1, column=1, sticky=(tk.W, tk.E), pady=10)
-        
-        ttk.Label(search_frame, text="Max Applications:", style="Heading.TLabel").grid(row=2, column=0, sticky=tk.W, pady=10)
-        self.max_applications_var = tk.IntVar(value=50)
-        ttk.Spinbox(search_frame, from_=1, to=500, textvariable=self.max_applications_var, width=10).grid(row=2, column=1, sticky=tk.W, pady=10)
-        
-        # Tab 2: Credentials
-        creds_frame = ttk.Frame(config_notebook, padding="15")
-        config_notebook.add(creds_frame, text="Credentials")
-        creds_frame.columnconfigure(1, weight=1)
-        
-        ttk.Label(creds_frame, text="LinkedIn Email:", style="Heading.TLabel").grid(row=0, column=0, sticky=tk.W, pady=10)
-        self.email_var = tk.StringVar(value=username or "")
-        ttk.Entry(creds_frame, textvariable=self.email_var, width=30, show="*").grid(row=0, column=1, sticky=(tk.W, tk.E), pady=10)
-        
-        ttk.Label(creds_frame, text="LinkedIn Password:", style="Heading.TLabel").grid(row=1, column=0, sticky=tk.W, pady=10)
-        self.password_var = tk.StringVar(value=password or "")
-        ttk.Entry(creds_frame, textvariable=self.password_var, width=30, show="•").grid(row=1, column=1, sticky=(tk.W, tk.E), pady=10)
-        
-        ttk.Label(creds_frame, text="Resume Path:", style="Heading.TLabel").grid(row=2, column=0, sticky=tk.W, pady=10)
-        resume_frame = ttk.Frame(creds_frame)
-        resume_frame.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=10)
-        resume_frame.columnconfigure(0, weight=1)
-        self.resume_var = tk.StringVar(value=default_resume_path or "")
-        ttk.Entry(resume_frame, textvariable=self.resume_var, width=25).grid(row=0, column=0, sticky=(tk.W, tk.E))
-        ttk.Button(resume_frame, text="Browse...", command=self.browse_resume, width=10).grid(row=0, column=1, padx=(5, 0))
-        
-        # Tab 3: Settings
-        settings_frame = ttk.Frame(config_notebook, padding="15")
-        config_notebook.add(settings_frame, text="Settings")
-        
-        self.headless_var = tk.BooleanVar(value=run_in_background)
-        ttk.Checkbutton(settings_frame, text="Run in Background (Headless Mode)", variable=self.headless_var).pack(anchor=tk.W, pady=8)
-        
-        self.stealth_var = tk.BooleanVar(value=stealth_mode)
-        ttk.Checkbutton(settings_frame, text="Stealth Mode (Anti-Detection)", variable=self.stealth_var).pack(anchor=tk.W, pady=8)
-        
-        self.safe_mode_var = tk.BooleanVar(value=safe_mode)
-        ttk.Checkbutton(settings_frame, text="Safe Mode (Guest Profile)", variable=self.safe_mode_var).pack(anchor=tk.W, pady=8)
-        
-        self.keep_awake_var = tk.BooleanVar(value=keep_screen_awake)
-        ttk.Checkbutton(settings_frame, text="Keep Screen Awake", variable=self.keep_awake_var).pack(anchor=tk.W, pady=8)
-        
-        self.use_ai_var = tk.BooleanVar(value=use_AI)
-        ttk.Checkbutton(settings_frame, text="Use AI for Resume Customization", variable=self.use_ai_var).pack(anchor=tk.W, pady=8)
-        
-        self.pause_submit_var = tk.BooleanVar(value=pause_before_submit)
-        ttk.Checkbutton(settings_frame, text="Pause Before Submit", variable=self.pause_submit_var).pack(anchor=tk.W, pady=8)
-        
-        # Control Buttons Frame
-        button_frame = ttk.LabelFrame(left_frame, text="Controls", padding="10")
-        button_frame.pack(fill=tk.X, pady=(10, 0))
-        
-        self.start_button = ttk.Button(button_frame, text="▶ START", command=self.start_application, style="Accent.TButton")
-        self.start_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, ipady=10)
-        
-        self.stop_button = ttk.Button(button_frame, text="⏹ STOP", command=self.stop_application, state=tk.DISABLED)
-        self.stop_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, ipady=10)
-        
-        self.clear_button = ttk.Button(button_frame, text="🗑 CLEAR LOG", command=self.clear_log)
-        self.clear_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, ipady=10)
-        
-        # ==================== RIGHT PANEL - OUTPUT LOG ====================
-        right_frame = ttk.Frame(main_paned)
-        main_paned.add(right_frame, weight=2)
-        
-        log_label = ttk.Label(right_frame, text="Application Log", style="Heading.TLabel")
-        log_label.pack(anchor=tk.W, pady=(0, 5))
-        
-        # Scrolled text widget for logs
-        self.output_text = scrolledtext.ScrolledText(
-            right_frame,
-            wrap=tk.WORD,
-            height=30,
-            width=70,
-            font=("Consolas", 9),
-            bg="#f0f0f0",
-            fg="#000000"
-        )
-        self.output_text.pack(fill=tk.BOTH, expand=True)
-        
-        # Configure text tags for different log levels
-        self.output_text.tag_configure("info", foreground="#0066cc")
-        self.output_text.tag_configure("success", foreground="#00aa00")
-        self.output_text.tag_configure("warning", foreground="#ff7700")
-        self.output_text.tag_configure("error", foreground="#cc0000")
-        self.output_text.tag_configure("debug", foreground="#888888")
-        
-        # Status bar
-        status_frame = ttk.Frame(self.root)
-        status_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
-        
-        self.status_var = tk.StringVar(value="Ready")
-        status_label = ttk.Label(status_frame, textvariable=self.status_var, relief=tk.SUNKEN)
-        status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        self.progress_var = tk.IntVar(value=0)
-        self.progress_label = ttk.Label(status_frame, text="0%")
-        self.progress_label.pack(side=tk.RIGHT, padx=(10, 0))
-    
-    def log(self, message, level="info"):
-        """Thread-safe logging with different levels."""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_msg = f"[{timestamp}] {message}"
-        self.log_queue.put((formatted_msg, level))
-    
-    def check_log_queue(self):
-        """Periodically check and process log queue."""
+
+    def run(self):
         try:
-            while True:
-                message, level = self.log_queue.get_nowait()
-                self.output_text.insert(tk.END, message + "\n", level)
-                self.output_text.see(tk.END)
-        except queue.Empty:
-            pass
-        
-        self.root.after(100, self.check_log_queue)
-    
-    def browse_resume(self):
-        """Open file dialog to select resume."""
-        filename = filedialog.askopenfilename(
-            title="Select Resume",
-            filetypes=[("PDF files", "*.pdf"), ("Word files", "*.docx"), ("All files", "*.*")]
-        )
-        if filename:
-            self.resume_var.set(filename)
-            self.log(f"Resume selected: {filename}", "success")
-    
-    def start_application(self):
-        """Start the job application process."""
-        
-        # Validation
-        if not self.email_var.get():
-            messagebox.showerror("Validation Error", "Please enter LinkedIn email!")
-            return
-        
-        if not self.password_var.get():
-            messagebox.showerror("Validation Error", "Please enter LinkedIn password!")
-            return
-        
-        if not self.resume_var.get():
-            messagebox.showerror("Validation Error", "Please select a resume!")
-            return
-        
-        if not os.path.exists(self.resume_var.get()):
-            messagebox.showerror("File Error", f"Resume file not found: {self.resume_var.get()}")
-            return
-        
-        # Update UI state
-        self.is_running = True
-        self.start_button.config(state=tk.DISABLED)
-        self.stop_button.config(state=tk.NORMAL)
-        self.status_var.set("Running...")
-        
-        self.log("Starting job application process...", "info")
-        self.log(f"Job Title: {self.job_title_var.get()}", "info")
-        self.log(f"Location: {self.location_var.get()}", "info")
-        
-        # Run application in separate thread
-        app_thread = threading.Thread(target=self.run_application, daemon=True)
-        app_thread.start()
-    
-    def run_application(self):
-        """Main application logic (runs in background thread)."""
-        linkedin_session = None
-        try:
-            self.log("Validating configuration...", "info")
-            validate_config()
-            
-            self.log("Opening Chrome browser...", "info")
-            self.driver, self.wait, self.actions = open_browser()
-            
-            if self.driver is None:
-                self.log("ERROR: Failed to open browser!", "error")
-                self.status_var.set("Error - Browser initialization failed")
+            # Open browser
+            from modules.open_chrome import open_browser, close_browser, driver, wait, actions
+            from modules.automation_manager import LinkedInSession
+
+            self.emit_log("Opening browser...", "info")
+            open_browser()
+
+            # Wait for globals to be set
+            d = driver
+            w = wait
+            a = actions
+
+            if not d or not w:
+                self.emit_log("Browser failed to initialize", "error")
+                self.finished_signal.emit({})
                 return
+
+            session = LinkedInSession(d, w, a, log_callback=self.emit_log)
             
-            self.log("Browser opened successfully", "success")
-            
-            # Create LinkedIn session with logging callback
-            linkedin_session = LinkedInSession(
-                self.driver, 
-                self.wait, 
-                self.actions, 
-                log_callback=self.log
-            )
-            
-            # Login to LinkedIn
-            self.log("Logging in to LinkedIn...", "info")
-            if not linkedin_session.login(self.email_var.get(), self.password_var.get()):
-                self.log("ERROR: Failed to login to LinkedIn!", "error")
-                self.status_var.set("Error - Login failed")
-                return
-            
-            self.log("Successfully logged in to LinkedIn!", "success")
-            
-            # Prepare form data
-            form_data = {
-                'job_title': self.job_title_var.get(),
-                'location': self.location_var.get(),
-                'resume_path': self.resume_var.get(),
-            }
-            
-            # Run job search and application workflow
-            self.log(f"Starting job search for: {self.job_title_var.get()} in {self.location_var.get()}", "info")
-            
-            stats = linkedin_session.run_search_and_apply(
-                job_title=self.job_title_var.get(),
-                location=self.location_var.get(),
-                max_applications=self.max_applications_var.get(),
-                form_data=form_data
-            )
-            
-            # Show final statistics
-            self.log(f"\n{'='*60}", "info")
-            self.log("APPLICATION SESSION COMPLETED", "success")
-            self.log(f"  Total Applied: {stats['applied']}", "success")
-            self.log(f"  Failed: {stats['failed']}", "warning" if stats['failed'] > 0 else "success")
-            self.log(f"  Skipped: {stats['skipped']}", "info")
-            self.log(f"  Total Processed: {stats['total']}", "info")
-            self.log(f"{'='*60}\n", "info")
-            
-            self.status_var.set(f"Completed - Applied: {stats['applied']}, Failed: {stats['failed']}, Skipped: {stats['skipped']}")
-            
-        except Exception as e:
-            self.log(f"ERROR: {str(e)}", "error")
-            self.status_var.set("Error - See log for details")
-            critical_error_log("In GUI Application", e)
-        
-        finally:
-            self.log("Closing browser...", "info")
-            if self.driver:
+            # Wire progress callbacks to automation manager (use app_manager attribute)
+            def on_progress(applied, failed, skipped, current_job):
                 try:
-                    close_browser()
-                    self.log("Browser closed successfully", "success")
-                except Exception as e:
-                    self.log(f"Error closing browser: {str(e)}", "warning")
-            
-            self.is_running = False
-            self.start_button.config(state=tk.NORMAL)
-            self.stop_button.config(state=tk.DISABLED)
-    
-    def stop_application(self):
-        """Stop the running application."""
-        self.is_running = False
-        
-        if self.driver:
+                    self.progress_signal.emit(applied, failed, skipped, current_job)
+                except Exception:
+                    pass
+
+            def on_form_progress(pct: int):
+                try:
+                    self.form_progress_signal.emit(pct)
+                except Exception:
+                    pass
+
+            # app_manager is the JobApplicationManager instance on LinkedInSession
+            try:
+                session.app_manager.progress_callback = on_progress
+                session.app_manager.form_progress_callback = on_form_progress
+            except Exception:
+                # backward compatibility: try older attribute name if present
+                try:
+                    session.job_manager.progress_callback = on_progress
+                    session.job_manager.form_progress_callback = on_form_progress
+                except Exception:
+                    pass
+
+            # If an ErrorRecoveryManager is present, enable blocking captcha wait and
+            # set a callback that will emit a signal to the UI to request user action.
+            try:
+                from modules import error_recovery
+                mgr = getattr(error_recovery, 'current_recovery_manager', None)
+                if mgr:
+                    try:
+                        mgr.config.captcha_blocking_wait = True
+                        mgr.config.captcha_pause_callback = lambda msg: self.captcha_pause_signal.emit(msg or "CAPTCHA detected")
+                        # keep reference for debugging if needed
+                        self.recovery_manager = mgr
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Use defaults for credentials from config if available (login optional)
+            stats = session.run_search_and_apply(
+                self.job_title,
+                self.location,
+                self.max_applications,
+                self.form_data,
+                language=self.language,
+                prefer_english=self.prefer_english,
+            )
+
+            self.finished_signal.emit(stats)
+
+        except Exception as e:
+            self.emit_log(f"Worker exception: {e}", "error")
             try:
                 close_browser()
-                self.log("Browser closed", "info")
-            except Exception as e:
-                self.log(f"Error closing browser: {str(e)}", "warning")
-        
-        self.status_var.set("Stopped by user")
-        self.start_button.config(state=tk.NORMAL)
-        self.stop_button.config(state=tk.DISABLED)
-        self.log("Application stopped!", "warning")
-    
-    def clear_log(self):
-        """Clear the log output."""
-        self.output_text.delete(1.0, tk.END)
-        self.log("Log cleared", "debug")
+            except Exception:
+                pass
+            self.finished_signal.emit({"error": str(e)})
 
 
-def main():
-    """Main entry point for the application."""
-    root = tk.Tk()
-    app = JobApplicationGUI(root)
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    app = QtWidgets.QApplication(sys.argv)
+    w = MainWindow()
+    w.show()
+    sys.exit(app.exec())

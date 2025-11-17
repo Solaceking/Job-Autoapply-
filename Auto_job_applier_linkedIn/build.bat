@@ -35,22 +35,25 @@ echo.
 echo [4/5] Creating standalone executable...
 echo.
 
-REM Build the executable
+REM Build the executable with Qt GUI
 pyinstaller --name "AutoJobApplier" ^
     --windowed ^
     --onefile ^
     --icon=assets\icon.ico ^
     --add-data "config;config" ^
     --add-data "modules;modules" ^
-    --add-data "templates;templates" ^
     --collect-all selenium ^
     --collect-all undetected_chromedriver ^
+    --collect-all PySide6 ^
     --hidden-import=selenium ^
     --hidden-import=undetected_chromedriver ^
-    --hidden-import=flask ^
+    --hidden-import=PySide6.QtCore ^
+    --hidden-import=PySide6.QtWidgets ^
+    --hidden-import=PySide6.QtGui ^
     --hidden-import=google.generativeai ^
-    --distpath "dist\AutoJobApplier" ^
-    gui.py
+    --hidden-import=openai ^
+    --distpath "dist" ^
+    main.py
 
 if %errorlevel% neq 0 (
     echo.
@@ -63,15 +66,21 @@ echo.
 echo [5/5] Build Complete!
 echo.
 echo ============================================================================
-echo Executable created: dist\AutoJobApplier\AutoJobApplier.exe
+echo Executable created: dist\AutoJobApplier.exe
 echo ============================================================================
 echo.
 echo To run the application, execute:
-echo   dist\AutoJobApplier\AutoJobApplier.exe
+echo   dist\AutoJobApplier.exe
+echo.
+echo Next Steps:
+echo   1. Configure credentials in config/secrets.py
+echo   2. Customize job search in config/search.py
+echo   3. Run the executable: dist\AutoJobApplier.exe
 echo.
 echo To create an installer (optional):
 echo   1. Download NSIS: https://nsis.sourceforge.io/Main_Page
-echo   2. Run: "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+echo   2. Create installer.nsi script
+echo   3. Run: "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
 echo.
 
 pause
