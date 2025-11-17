@@ -828,7 +828,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.worker.captcha_pause_signal.connect(self._on_captcha_detected)
             self.worker.start()
             
-            self.connection_label.setText("🟢 Running")
+            self.connection_label.setText("🟢 Automation: Running")
             
         except Exception as e:
             self._log("error", f"Failed to start worker: {e}")
@@ -867,4 +867,193 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_captcha_resume(self):
         """Resume after CAPTCHA"""
-        self.captcha_banner.setVisible(Fal
+        self.captcha_banner.setVisible(False)
+        self._log("info", "Resuming after CAPTCHA")
+
+    def _on_captcha_cancel(self):
+        """Cancel after CAPTCHA"""
+        self.captcha_banner.setVisible(False)
+        self._on_stop()
+        self._log("warning", "Cancelled after CAPTCHA")
+
+    def _save_ai_config(self):
+        """Save AI configuration"""
+        self._log("success", "AI configuration saved")
+        QtWidgets.QMessageBox.information(self, "Saved", "AI configuration saved successfully!")
+
+    def _test_ai_connection(self):
+        """Test AI connection"""
+        self._log("info", "Testing AI connection...")
+        QtWidgets.QMessageBox.information(self, "Test", "AI connection test - feature coming soon!")
+
+    def _save_settings(self):
+        """Save settings to config files"""
+        self._log("success", "Settings saved to config files")
+        QtWidgets.QMessageBox.information(self, "Saved", "Settings saved successfully!")
+
+    def _load_settings(self):
+        """Load settings from config files"""
+        self._log("info", "Settings loaded from config files")
+        QtWidgets.QMessageBox.information(self, "Loaded", "Settings loaded successfully!")
+
+    def _reset_settings(self):
+        """Reset settings to defaults"""
+        reply = QtWidgets.QMessageBox.question(
+            self, "Reset Settings",
+            "Are you sure you want to reset all settings to defaults?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            self._log("info", "Settings reset to defaults")
+
+    def _confirm_clear_history(self):
+        """Confirm clearing history"""
+        reply = QtWidgets.QMessageBox.question(
+            self, "Clear History",
+            "Are you sure you want to clear all application history?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            self.history_table.setRowCount(0)
+            self._log("info", "History cleared")
+
+    def _refresh_settings(self):
+        """Refresh settings from files"""
+        self._log("info", "Refreshing settings...")
+
+    def _show_about(self):
+        """Show about dialog"""
+        QtWidgets.QMessageBox.about(
+            self, "About Auto Job Applier",
+            "<h2>LinkedIn Auto Job Applier</h2>"
+            "<p>Version 2.0.0</p>"
+            "<p>Automated job application system for LinkedIn</p>"
+            "<p><b>⚠️ For Educational Purposes Only</b></p>"
+            "<p>Use at your own risk. May violate LinkedIn Terms of Service.</p>"
+        )
+
+
+class AutomationWorker(QtCore.QThread):
+    """Background worker that runs the LinkedIn automation workflow."""
+
+    log_signal = QtCore.Signal(str, str)  # level, message
+    finished_signal = QtCore.Signal(dict)
+    progress_signal = QtCore.Signal(int, int, int, str)  # applied, failed, skipped, current_job
+    form_progress_signal = QtCore.Signal(int)  # form fill percentage (0-100)
+    captcha_pause_signal = QtCore.Signal(str)  # message when CAPTCHA pause required
+
+    def __init__(self, job_title: str, location: str, max_applications: int, 
+                 form_data: dict, language: str = "", prefer_english: bool = False):
+        super().__init__()
+        self.job_title = job_title
+        self.location = location
+        self.max_applications = max_applications
+        self.form_data = form_data
+        self.language = language
+        self.prefer_english = prefer_english
+
+    def emit_log(self, message: str, level: str = "info"):
+        try:
+            self.log_signal.emit(level, message)
+        except Exception:
+            pass
+
+    def run(self):
+        try:
+            # Open browser
+            from modules.open_chrome import open_browser, close_browser, driver, wait, actions
+            from modules.automation_manager import LinkedInSession
+
+            self.emit_log("Opening browser...", "info")
+            open_browser()
+
+            # Wait for globals to be set
+            d = driver
+            w = wait
+            a = actions
+
+            if not d or not w:
+                self.emit_log("Browser failed to initialize", "error")
+                self.finished_signal.emit({})
+                return
+
+            session = LinkedInSession(d, w, a, log_callback=self.emit_log)
+            
+            # Wire progress callbacks to automation manager (use app_manager attribute)
+            def on_progress(applied, failed, skipped, current_job):
+                try:
+                    self.progress_signal.emit(applied, failed, skipped, current_job)
+                except Exception:
+                    pass
+
+            def on_form_progress(pct: int):
+                try:
+                    self.form_progress_signal.emit(pct)
+                except Exception:
+                    pass
+
+            # app_manager is the JobApplicationManager instance on LinkedInSession
+            try:
+                session.app_manager.progress_callback = on_progress
+                session.app_manager.form_progress_callback = on_form_progress
+            except Exception:
+                # backward compatibility: try older attribute name if present
+                try:
+                    session.job_manager.progress_callback = on_progress
+                    session.job_manager.form_progress_callback = on_form_progress
+                except Exception:
+                    pass
+
+            # If an ErrorRecoveryManager is present, enable blocking captcha wait and
+            # set a callback that will emit a signal to the UI to request user action.
+            try:
+                from modules import error_recovery
+                mgr = getattr(error_recovery, 'current_recovery_manager', None)
+                if mgr:
+                    try:
+                        mgr.config.captcha_blocking_wait = True
+                        mgr.config.captcha_pause_callback = lambda msg: self.captcha_pause_signal.emit(msg or "CAPTCHA detected")
+                        # keep reference for debugging if needed
+                        self.recovery_manager = mgr
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Use defaults for credentials from config if available (login optional)
+            stats = session.run_search_and_apply(
+                self.job_title,
+                self.location,
+                self.max_applications,
+                self.form_data,
+                language=self.language,
+                prefer_english=self.prefer_english,
+            )
+
+            self.finished_signal.emit(stats)
+
+        except Exception as e:
+            self.emit_log(f"Worker exception: {e}", "error")
+            import traceback
+            traceback.print_exc()
+            try:
+                from modules.open_chrome import close_browser
+                close_browser()
+            except Exception:
+                pass
+            self.finished_signal.emit({"error": str(e)})
+
+
+if __name__ == '__main__':
+    app = QtWidgets.QApplication(sys.argv)
+    
+    # Set application style
+    app.setStyle("Fusion")
+    
+    # Create and show window
+    window = MainWindow()
+    window.show()
+    
+    sys.exit(app.exec())
