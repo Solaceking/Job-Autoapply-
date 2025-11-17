@@ -706,8 +706,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusbar_label = QtWidgets.QLabel("Ready")
         self.statusBar().addPermanentWidget(self.statusbar_label)
         
-        # Add connection status
-        self.connection_label = QtWidgets.QLabel("🔴 Not Connected")
+        # Add automation status (not internet connection)
+        self.connection_label = QtWidgets.QLabel("🔴 Automation: Idle")
         self.statusBar().addWidget(self.connection_label)
 
     def _switch_page(self, page_name):
@@ -773,16 +773,26 @@ class MainWindow(QtWidgets.QMainWindow):
         """Stop automation"""
         self._log("warning", "Stop requested")
         
+        # Stop worker thread if running
+        if self.worker and self.worker.isRunning():
+            try:
+                self.worker.terminate()
+                self.worker.wait(2000)  # Wait up to 2 seconds
+            except Exception as e:
+                self._log("debug", f"Worker stop: {e}")
+        
+        # Close browser
         try:
             from modules.open_chrome import close_browser
             close_browser()
             self._log("info", "Browser closed")
         except Exception as e:
-            self._log("error", f"Error stopping: {e}")
+            self._log("debug", f"Browser close: {e}")
         
         self.run_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
+        self.connection_label.setText("🔴 Automation: Idle")
 
     def _on_search(self):
         """Start the automation worker"""
@@ -801,8 +811,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
-            from gui import AutomationWorker
-            
+            # AutomationWorker is defined in this same file below
             self.worker = AutomationWorker(
                 job_title=keywords,
                 location=location,
@@ -816,6 +825,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.worker.progress_signal.connect(self._on_worker_progress)
             self.worker.form_progress_signal.connect(self._on_form_progress)
             self.worker.finished_signal.connect(self._on_worker_finished)
+            self.worker.captcha_pause_signal.connect(self._on_captcha_detected)
             self.worker.start()
             
             self.connection_label.setText("🟢 Running")
@@ -843,89 +853,18 @@ class MainWindow(QtWidgets.QMainWindow):
         """Handle worker completion"""
         self._log("success", f"Automation finished: {stats}")
         self.overall_progress.setValue(100)
-        self.connection_label.setText("🔴 Not Connected")
+        self.connection_label.setText("🔴 Automation: Idle")
         
         self.run_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
 
+    def _on_captcha_detected(self, message):
+        """Show CAPTCHA banner when detected"""
+        self.captcha_label.setText(message)
+        self.captcha_banner.setVisible(True)
+        self._log("warning", message)
+
     def _on_captcha_resume(self):
         """Resume after CAPTCHA"""
-        self.captcha_banner.setVisible(False)
-        self._log("info", "Resuming after CAPTCHA")
-
-    def _on_captcha_cancel(self):
-        """Cancel after CAPTCHA"""
-        self.captcha_banner.setVisible(False)
-        self._log("warning", "Cancelled after CAPTCHA")
-
-    def _save_ai_config(self):
-        """Save AI configuration"""
-        self._log("success", "AI configuration saved")
-        QtWidgets.QMessageBox.information(self, "Saved", "AI configuration saved successfully!")
-
-    def _test_ai_connection(self):
-        """Test AI connection"""
-        self._log("info", "Testing AI connection...")
-        QtWidgets.QMessageBox.information(self, "Test", "AI connection test - feature coming soon!")
-
-    def _save_settings(self):
-        """Save settings to config files"""
-        self._log("success", "Settings saved to config files")
-        QtWidgets.QMessageBox.information(self, "Saved", "Settings saved successfully!")
-
-    def _load_settings(self):
-        """Load settings from config files"""
-        self._log("info", "Settings loaded from config files")
-        QtWidgets.QMessageBox.information(self, "Loaded", "Settings loaded successfully!")
-
-    def _reset_settings(self):
-        """Reset settings to defaults"""
-        reply = QtWidgets.QMessageBox.question(
-            self, "Reset Settings",
-            "Are you sure you want to reset all settings to defaults?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
-        )
-        
-        if reply == QtWidgets.QMessageBox.Yes:
-            self._log("info", "Settings reset to defaults")
-
-    def _confirm_clear_history(self):
-        """Confirm clearing history"""
-        reply = QtWidgets.QMessageBox.question(
-            self, "Clear History",
-            "Are you sure you want to clear all application history?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
-        )
-        
-        if reply == QtWidgets.QMessageBox.Yes:
-            self.history_table.setRowCount(0)
-            self._log("info", "History cleared")
-
-    def _refresh_settings(self):
-        """Refresh settings from files"""
-        self._log("info", "Refreshing settings...")
-
-    def _show_about(self):
-        """Show about dialog"""
-        QtWidgets.QMessageBox.about(
-            self, "About Auto Job Applier",
-            "<h2>LinkedIn Auto Job Applier</h2>"
-            "<p>Version 2.0.0</p>"
-            "<p>Automated job application system for LinkedIn</p>"
-            "<p><b>⚠️ For Educational Purposes Only</b></p>"
-            "<p>Use at your own risk. May violate LinkedIn Terms of Service.</p>"
-        )
-
-
-if __name__ == '__main__':
-    app = QtWidgets.QApplication(sys.argv)
-    
-    # Set application style
-    app.setStyle("Fusion")
-    
-    # Create and show window
-    window = MainWindow()
-    window.show()
-    
-    sys.exit(app.exec())
+        self.captcha_banner.setVisible(Fal
