@@ -878,13 +878,110 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _save_ai_config(self):
         """Save AI configuration"""
-        self._log("success", "AI configuration saved")
-        QtWidgets.QMessageBox.information(self, "Saved", "AI configuration saved successfully!")
+        try:
+            # Get values from GUI
+            use_ai = self.use_ai_chk.isChecked()
+            provider_map = {
+                "OpenAI (GPT)": "openai",
+                "Google Gemini": "gemini",
+                "DeepSeek": "deepseek",
+                "Ollama (Local)": "openai"
+            }
+            provider = provider_map.get(self.ai_provider_combo.currentText(), "openai")
+            api_key = self.api_key_edit.text()
+            model = self.model_combo.currentText()
+            
+            # Update config/secrets.py
+            import Auto_job_applier_linkedIn.config.secrets as secrets
+            secrets.use_AI = use_ai
+            secrets.ai_provider = provider
+            secrets.llm_api_key = api_key if api_key else "not-needed"
+            secrets.llm_model = model
+            
+            # Reinitialize AI handler with new config
+            from modules.ai_handler import ai_handler
+            ai_handler.enabled = use_ai
+            ai_handler.provider = provider
+            ai_handler.api_key = api_key if api_key else "not-needed"
+            ai_handler.model = model
+            ai_handler._initialize_client()
+            
+            self._log("success", f"AI configuration saved (Provider: {provider}, Enabled: {use_ai})")
+            QtWidgets.QMessageBox.information(
+                self, "Saved", 
+                f"AI configuration saved successfully!\n\n"
+                f"Provider: {provider}\n"
+                f"Model: {model}\n"
+                f"Enabled: {use_ai}"
+            )
+        except Exception as e:
+            self._log("error", f"Error saving AI config: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to save AI configuration:\n{str(e)}")
 
     def _test_ai_connection(self):
         """Test AI connection"""
         self._log("info", "Testing AI connection...")
-        QtWidgets.QMessageBox.information(self, "Test", "AI connection test - feature coming soon!")
+        
+        try:
+            # Import AI handler
+            from modules.ai_handler import test_ai_connection
+            
+            # Show progress dialog
+            progress = QtWidgets.QProgressDialog("Testing AI connection...", "Cancel", 0, 0, self)
+            progress.setWindowModality(QtCore.Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            progress.show()
+            QtWidgets.QApplication.processEvents()
+            
+            # Test connection
+            result = test_ai_connection()
+            
+            progress.close()
+            
+            # Show results
+            if result["success"]:
+                self._log("success", "AI connection successful!")
+                details = result.get("details", {})
+                msg = f"✅ Connection Successful!\n\n"
+                msg += f"Provider: {details.get('provider', 'unknown')}\n"
+                msg += f"Model: {details.get('model', 'unknown')}\n"
+                msg += f"API URL: {details.get('api_url', 'N/A')}\n\n"
+                msg += f"Response: {details.get('response', 'OK')}"
+                
+                QtWidgets.QMessageBox.information(self, "AI Test Success", msg)
+            else:
+                self._log("error", f"AI connection failed: {result['message']}")
+                details = result.get("details", {})
+                msg = f"❌ Connection Failed\n\n"
+                msg += f"Error: {result['message']}\n\n"
+                msg += f"Provider: {details.get('provider', 'unknown')}\n"
+                
+                if details.get('error_type'):
+                    msg += f"Error Type: {details['error_type']}\n"
+                
+                msg += f"\n💡 Troubleshooting:\n"
+                msg += f"1. Check your API key is valid\n"
+                msg += f"2. Verify internet connection\n"
+                msg += f"3. Ensure API URL is correct\n"
+                msg += f"4. Check API service status\n"
+                
+                QtWidgets.QMessageBox.warning(self, "AI Test Failed", msg)
+                
+        except ImportError as e:
+            self._log("error", f"AI module import error: {str(e)}")
+            QtWidgets.QMessageBox.critical(
+                self, "Import Error",
+                f"Could not import AI module:\n{str(e)}\n\n"
+                f"Make sure required packages are installed:\n"
+                f"pip install openai google-generativeai"
+            )
+        except Exception as e:
+            self._log("error", f"AI test error: {str(e)}")
+            QtWidgets.QMessageBox.critical(
+                self, "Error",
+                f"An error occurred while testing AI:\n{str(e)}"
+            )
 
     def _save_settings(self):
         """Save settings to config files"""
