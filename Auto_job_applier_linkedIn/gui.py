@@ -962,17 +962,18 @@ class AutomationWorker(QtCore.QThread):
 
     def run(self):
         try:
-            # Open browser
-            from modules.open_chrome import open_browser, close_browser, driver, wait, actions
+            # Import modules
+            import modules.open_chrome as chrome_module
             from modules.automation_manager import LinkedInSession
 
             self.emit_log("Opening browser...", "info")
-            open_browser()
+            chrome_module.open_browser()
 
-            # Wait for globals to be set
-            d = driver
-            w = wait
-            a = actions
+            # Access the global variables AFTER opening browser
+            # (they are set as module-level globals by open_browser())
+            d = chrome_module.driver
+            w = chrome_module.wait
+            a = chrome_module.actions
 
             if not d or not w:
                 self.emit_log("Browser failed to initialize", "error")
