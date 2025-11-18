@@ -10,6 +10,7 @@ __all__ = [
     'error_recovery',
     'form_handler',
     'helpers',
+    'human_behavior',
     'open_chrome',
     'question_handler',
     'settings_manager',

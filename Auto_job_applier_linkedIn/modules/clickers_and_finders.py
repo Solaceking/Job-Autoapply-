@@ -25,6 +25,7 @@ from selenium.common.exceptions import (
     InvalidSelectorException
 )
 import time
+import random
 
 
 def try_xp(driver, xpath: str, timeout: int = 5, return_multiple: bool = False):
@@ -252,8 +253,15 @@ def wait_span_click(driver, text: str, timeout: int = 10, partial_match: bool = 
         wait = WebDriverWait(driver, timeout)
         span_element = wait.until(EC.element_to_be_clickable((By.XPATH, xpath)))
         
+        # Small human-like delay before clicking
+        time.sleep(random.uniform(0.1, 0.3))
+        
         # Try to click the element
         span_element.click()
+        
+        # Small pause after click (human reaction time)
+        time.sleep(random.uniform(0.3, 0.7))
+        
         return True
     
     except TimeoutException:
@@ -362,8 +370,19 @@ def text_input_by_ID(driver, element_id: str, text: str, clear_first: bool = Tru
                 # Clear might fail on some element types, but we can still try send_keys
                 pass
         
-        # Input the text
-        element.send_keys(text)
+        # Input the text with human-like typing speed
+        for char in text:
+            element.send_keys(char)
+            # Variable typing speed (50-150ms per character)
+            if char == ' ':
+                # Slight pause at spaces
+                time.sleep(random.uniform(0.1, 0.2))
+            else:
+                time.sleep(random.uniform(0.05, 0.15))
+        
+        # Small pause after typing (processing time)
+        time.sleep(random.uniform(0.2, 0.5))
+        
         return True
     
     except TimeoutException:
