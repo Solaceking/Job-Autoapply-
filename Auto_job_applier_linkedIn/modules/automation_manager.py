@@ -229,18 +229,49 @@ class JobApplicationManager:
             
             self.log(f"Job search page loaded: {search_url}", "success")
             
-            # Wait for job listings to load
-            self.wait.until(EC.presence_of_all_elements_located((By.CLASS_NAME, "job-card-container")))
+            # Wait for job listings to load (try multiple selectors with longer timeout)
+            # LinkedIn's HTML structure changes, so try multiple possible selectors
+            from selenium.webdriver.support.ui import WebDriverWait
+            wait_long = WebDriverWait(self.driver, 15)  # 15 second timeout for initial load
+            
+            job_cards = None
+            selectors_to_try = [
+                (By.CLASS_NAME, "job-card-container"),
+                (By.CLASS_NAME, "jobs-search-results__list-item"),
+                (By.CSS_SELECTOR, "[data-job-id]"),
+                (By.CSS_SELECTOR, ".scaffold-layout__list-item"),
+                (By.XPATH, "//li[contains(@class, 'jobs-search-results')]"),
+                (By.CSS_SELECTOR, "ul.jobs-search-results__list > li"),
+            ]
+            
+            for by_method, selector in selectors_to_try:
+                try:
+                    self.log(f"Trying selector: {selector}", "debug")
+                    wait_long.until(EC.presence_of_element_located((by_method, selector)))
+                    job_cards = self.driver.find_elements(by_method, selector)
+                    if job_cards and len(job_cards) > 0:
+                        self.log(f"Found {len(job_cards)} job cards using selector: {selector}", "success")
+                        break
+                except TimeoutException:
+                    continue
+            
+            if not job_cards or len(job_cards) == 0:
+                self.log("Could not find job listings with any known selector", "error")
+                self.log("Page might require login or have different structure", "warning")
+                return False
             
             # If prefer_english is set, we'll later prefer job descriptions that contain predominantly English text.
-            self.log(f"Job listings loaded. Found job listings on page. language={language} prefer_english={prefer_english}", "success")
+            self.log(f"Job listings loaded. Found {len(job_cards)} listings. language={language} prefer_english={prefer_english}", "success")
             return True
         
         except TimeoutException:
-            self.log("Timeout: Job listings failed to load", "error")
+            self.log("Timeout: Job listings failed to load within 15 seconds", "error")
+            self.log("This may indicate: slow connection, need to login, or page structure changed", "warning")
             return False
         except Exception as e:
             self.log(f"Error searching jobs: {str(e)}", "error")
+            import traceback
+            self.log(f"Traceback: {traceback.format_exc()}", "debug")
             return False
     
     def get_job_listings(self) -> List[dict]:
