@@ -62,16 +62,32 @@ def critical_error_log(message: str, exception: Exception = None):
         pass
 
 
-def make_directories():
+def make_directories(directories=None):
     """
     Create necessary directories for the application.
-    Creates: logs/, data/, output/
+    
+    Args:
+        directories: List of directory paths to create. 
+                    If None, creates default directories: logs/, data/, output/
     """
-    directories = ["logs", "data", "output"]
+    if directories is None:
+        directories = ["logs", "data", "output"]
+    
+    # Handle string input (single directory)
+    if isinstance(directories, str):
+        directories = [directories]
     
     for directory in directories:
         try:
-            Path(directory).mkdir(exist_ok=True, parents=True)
+            # Handle paths with file names (create parent directory)
+            dir_path = Path(directory)
+            
+            # If it looks like a file path (has extension or is a file), create parent dir
+            if '.' in dir_path.name or dir_path.suffix:
+                dir_path = dir_path.parent
+            
+            # Create the directory
+            dir_path.mkdir(exist_ok=True, parents=True)
         except Exception as e:
             print_lg(f"Failed to create directory '{directory}': {e}", "WARNING")
 
