@@ -45,6 +45,17 @@ def open_browser():
         # Set up WebDriver with Chrome Profile
         options = uc.ChromeOptions() if stealth_mode else Options()
         
+        # Hide automation indicators
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        
+        # Additional stealth options
+        options.add_argument("--disable-infobars")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-gpu")
+        
         if run_in_background:
             options.add_argument("--headless")
         
@@ -60,12 +71,36 @@ def open_browser():
             if profile_dir:
                 options.add_argument(f"--user-data-dir={profile_dir}")
                 print_lg(f"Using Chrome profile: {profile_dir}")
+            else:
+                print_lg("Warning: Could not find default Chrome profile, using temporary profile")
 
         if stealth_mode:
             print_lg("Downloading Chrome Driver... This may take some time!")
             driver = uc.Chrome(options=options)
         else:
             driver = webdriver.Chrome(options=options)
+        
+        # Remove automation detection at JavaScript level
+        try:
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5]
+                    });
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en']
+                    });
+                    window.chrome = {
+                        runtime: {}
+                    };
+                """
+            })
+            print_lg("Automation detection disabled at JavaScript level")
+        except Exception as e:
+            print_lg(f"Note: Could not disable JS automation detection: {e}")
         
         driver.maximize_window()
         wait = WebDriverWait(driver, 5)

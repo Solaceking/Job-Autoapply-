@@ -120,7 +120,7 @@ def find_default_profile_directory() -> str:
     Find the default Chrome profile directory.
     
     Returns:
-        Path to Chrome profile directory or empty string if not found
+        Path to Chrome User Data directory (parent of Default profile) or empty string if not found
     """
     if sys.platform == "win32":
         # Windows
@@ -142,9 +142,11 @@ def find_default_profile_directory() -> str:
     
     for base_path in base_paths:
         if os.path.exists(base_path):
+            # Check if Default profile exists (validates this is correct User Data dir)
             default_profile = os.path.join(base_path, "Default")
             if os.path.exists(default_profile):
-                return default_profile
+                # Return the User Data directory, not the Default profile path
+                return base_path
     
     return ""
 
