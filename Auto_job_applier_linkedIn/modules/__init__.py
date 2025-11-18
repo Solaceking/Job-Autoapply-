@@ -6,6 +6,7 @@ Contains all core automation modules
 __version__ = "2.0.0"
 __all__ = [
     'automation_manager',
+    'clickers_and_finders',
     'error_recovery',
     'form_handler',
     'helpers',
