@@ -688,6 +688,8 @@ class JobApplicationManager:
             # The typical flow has multiple "Next" buttons, then "Review", then "Submit"
             # We need to handle this specific sequence properly
             max_steps = 10  # Increased to handle longer forms
+            last_url = None  # Track URL changes to detect if we're stuck
+            stuck_count = 0  # Count consecutive clicks on same page
             
             for step in range(max_steps):
                 # Check if we're on the Review page
@@ -778,6 +780,26 @@ class JobApplicationManager:
                                 time.sleep(3)  # Review page takes longer to load
                             else:
                                 time.sleep(2.5)  # Standard wait for next step
+                            
+                            # Check if we're stuck on the same page (URL didn't change)
+                            current_url = self.driver.current_url
+                            if current_url == last_url and "next" in button_text.lower():
+                                stuck_count += 1
+                                if stuck_count >= 3:
+                                    self.log("⚠️ Stuck on same page after 3 clicks - likely missing required fields", "warning")
+                                    self.log("❌ Closing application and moving to next job", "warning")
+                                    # Close the modal
+                                    try:
+                                        close_button = try_xp(self.driver, '//button[@aria-label="Dismiss"]', timeout=1)
+                                        if close_button:
+                                            close_button.click()
+                                            time.sleep(1)
+                                    except:
+                                        pass
+                                    return False
+                            else:
+                                stuck_count = 0  # Reset if URL changed
+                            last_url = current_url
                             
                             # Check if we successfully submitted (look for confirmation)
                             try:

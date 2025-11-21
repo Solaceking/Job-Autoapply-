@@ -23,6 +23,8 @@ Material Design 3 Principles Applied:
 
 import sys
 import os
+import subprocess
+import platform
 from pathlib import Path
 
 try:
@@ -1876,6 +1878,38 @@ class MaterialDesignGUI(QtWidgets.QMainWindow):
         """)
         controls.addWidget(clear_btn)
         
+        # Open Reports Folder button
+        open_folder_btn = QtWidgets.QPushButton("OPEN REPORTS FOLDER")
+        open_folder_btn.setMinimumHeight(44)
+        open_folder_btn.setMinimumWidth(180)
+        open_folder_btn.clicked.connect(self._open_reports_folder)
+        open_folder_btn.setToolTip(
+            "📂 Open the folder containing CSV reports.\n\n"
+            "CSV Files:\n"
+            "• all_applied_applications_history.csv - Successfully applied jobs\n"
+            "• all_failed_applications_history.csv - Failed application attempts\n\n"
+            "You can open these files in Excel, Google Sheets, or any CSV editor."
+        )
+        open_folder_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+            }
+            QPushButton:hover {
+                background-color: #4f46e5;
+            }
+            QPushButton:pressed {
+                background-color: #4338ca;
+            }
+        """)
+        controls.addWidget(open_folder_btn)
+        
         controls.addStretch()
         layout.addLayout(controls)
         
@@ -2364,6 +2398,44 @@ class MaterialDesignGUI(QtWidgets.QMainWindow):
             from config import questions
             questions.default_resume_path = file_path
             self._log("success", f"Resume selected: {file_path}")
+    
+    def _open_reports_folder(self):
+        """Open the folder containing CSV reports (cross-platform)"""
+        try:
+            # Get the reports folder path from settings
+            from config.settings import file_name
+            reports_folder = os.path.dirname(file_name)
+            
+            # Create folder if it doesn't exist
+            if not os.path.exists(reports_folder):
+                os.makedirs(reports_folder, exist_ok=True)
+                self._log("info", f"Created reports folder: {reports_folder}")
+            
+            # Get absolute path
+            abs_path = os.path.abspath(reports_folder)
+            
+            # Open folder in file explorer (cross-platform)
+            system = platform.system()
+            
+            if system == "Windows":
+                # Windows: Use explorer
+                os.startfile(abs_path)
+            elif system == "Darwin":
+                # macOS: Use open
+                subprocess.run(["open", abs_path], check=True)
+            else:
+                # Linux: Use xdg-open
+                subprocess.run(["xdg-open", abs_path], check=True)
+            
+            self._log("success", f"Opened reports folder: {abs_path}")
+            
+        except Exception as e:
+            self._log("error", f"Failed to open reports folder: {str(e)}")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Error",
+                f"Could not open reports folder:\n{str(e)}\n\nFolder path: {os.path.abspath(reports_folder)}"
+            )
     
     def _on_run(self):
         """Start automation"""
