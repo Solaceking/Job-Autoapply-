@@ -270,9 +270,15 @@ class QADatabaseDialog(QtWidgets.QDialog):
             questions = self.qa_db.get_all_questions(limit=1000)
             self.all_data = questions  # Store for filtering
             self._populate_table(questions)
-            self.stats_label.setText(f"📊 Total entries: {len(questions)}")
+            
+            if len(questions) == 0:
+                self.stats_label.setText(f"📊 Total entries: 0 - Run automation to populate database")
+            else:
+                self.stats_label.setText(f"📊 Total entries: {len(questions)}")
         except Exception as e:
-            QtWidgets.QMessageBox.warning(self, "Error", f"Failed to load Q&A database:\n{str(e)}")
+            self.stats_label.setText(f"⚠️ Database not initialized yet - will be created on first automation run")
+            self.all_data = []
+            self._populate_table([])
     
     def _populate_table(self, questions):
         """Populate table with question data"""
@@ -367,6 +373,16 @@ class QADatabaseDialog(QtWidgets.QDialog):
     
     def _export_to_csv(self):
         """Export Q&A database to CSV"""
+        # Check if there's data to export
+        if not hasattr(self, 'all_data') or len(self.all_data) == 0:
+            QtWidgets.QMessageBox.information(
+                self,
+                "No Data",
+                "The Q&A database is empty.\n\n"
+                "Run automation first to populate the database with questions and answers."
+            )
+            return
+        
         from PySide6.QtWidgets import QFileDialog
         file_path, _ = QFileDialog.getSaveFileName(
             self,

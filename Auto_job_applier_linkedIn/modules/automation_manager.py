@@ -716,30 +716,36 @@ class JobApplicationManager:
                     # Priority 1: Next/Continue buttons (most common in early steps)
                     '//button[contains(@aria-label, "Continue to next step")]',
                     '//button[contains(@aria-label, "next")]',
+                    '//button[contains(., "Next") and contains(@class, "artdeco-button")]',
                     '//button[contains(text(), "Next")]',
                     '//button[contains(text(), "Continue")]',
                     '//button[@data-easy-apply-next-button]',
+                    '//button[contains(@class, "artdeco-button") and contains(@aria-label, "Continue")]',
                     
                     # Priority 2: Review button (after all form pages)
                     '//button[contains(@aria-label, "Review your application")]',
                     '//button[contains(@aria-label, "Review")]',
+                    '//button[contains(., "Review") and contains(@class, "artdeco-button")]',
                     '//button[contains(text(), "Review")]',
                     '//button[contains(text(), "Review your application")]',
                     
                     # Priority 3: Submit button (final step after review)
                     '//button[contains(@aria-label, "Submit application")]',
+                    '//button[contains(., "Submit") and contains(@class, "artdeco-button")]',
                     '//button[contains(text(), "Submit application")]',
                     '//button[contains(text(), "Submit")]',
+                    '//button[contains(@aria-label, "submit")]',
                     
                     # Fallback: Generic primary buttons (if specific text not found)
                     '//footer//button[contains(@class, "artdeco-button--primary")]',
-                    '//button[contains(@class, "artdeco-button--primary")]',
+                    '//div[contains(@class, "artdeco-modal")]//button[contains(@class, "artdeco-button--primary")]',
+                    '//button[contains(@class, "artdeco-button--primary") and not(contains(@aria-label, "Dismiss"))]',
                 ]
                 
                 button_found = False
                 for selector in button_selectors:
                     try:
-                        button = try_xp(self.driver, selector, timeout=2)
+                        button = try_xp(self.driver, selector, timeout=3)
                         if button and button.is_displayed() and button.is_enabled():
                             # Scroll button into view first
                             try:
