@@ -114,16 +114,43 @@ class ErrorDetector:
             return ErrorType.UNKNOWN_ERROR, str(e)
 
     def _check_captcha(self, page_source: str, url: str) -> bool:
-        """Check for CAPTCHA indicators."""
-        captcha_indicators = [
-            "recaptcha",
-            "captcha",
-            "unusual activity",
-            "verify it's you",
-            "please solve",
-            "are you human",
+        """Check for CAPTCHA indicators with visual verification to avoid false positives."""
+        # STRICT: Check URL first (most reliable)
+        if "checkpoint" in url or "challenge" in url or "/security/" in url:
+            return True
+        
+        # STRICT: Only check for visible CAPTCHA elements in DOM
+        try:
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
+            # Check if actual reCAPTCHA iframe is present and visible
+            captcha_selectors = [
+                "//iframe[contains(@src, 'recaptcha')]",
+                "//div[@class='g-recaptcha']",
+                "//div[contains(@class, 'captcha')][@style and not(contains(@style, 'display: none'))]",
+            ]
+            
+            for selector in captcha_selectors:
+                try:
+                    element = self.driver.find_element(By.XPATH, selector)
+                    if element and element.is_displayed():
+                        self.config.log("Visual CAPTCHA element found on page", "warning")
+                        return True
+                except:
+                    continue
+        except:
+            pass
+        
+        # STRICT: Very specific text patterns that indicate real CAPTCHA
+        critical_indicators = [
+            "let's do a quick security check",  # LinkedIn's exact phrase
+            "verify you're not a robot",  # Common phrase
+            "solve this puzzle",  # CAPTCHA instructions
         ]
-        return any(indicator in page_source for indicator in captcha_indicators)
+        
+        return any(indicator in page_source for indicator in critical_indicators)
 
     def _check_rate_limit(self, page_source: str) -> bool:
         """Check for rate limit or throttling messages."""
@@ -139,25 +166,41 @@ class ErrorDetector:
         return any(indicator in page_source for indicator in rate_limit_indicators)
 
     def _check_session_timeout(self, page_source: str, url: str) -> bool:
-        """Check for session timeout or login-required indicators."""
-        session_indicators = [
-            "session expired",
-            "login required",
-            "sign in",
-            "authentication required",
-            "unauthorized",
-            "please log in",
+        """Check for session timeout with visual verification to avoid false positives."""
+        # STRICT: Check URL first - only login page indicates actual timeout
+        if "linkedin.com/login" in url or "linkedin.com/uas/login" in url:
+            return True
+        
+        # STRICT: Check for actual login form elements
+        try:
+            from selenium.webdriver.common.by import By
+            
+            # Check if login form is actually present and visible
+            login_selectors = [
+                "//input[@id='username']",  # LinkedIn login username field
+                "//input[@type='email' and @name='session_key']",  # Login email
+                "//form[contains(@class, 'login__form')]",  # Login form
+            ]
+            
+            for selector in login_selectors:
+                try:
+                    element = self.driver.find_element(By.XPATH, selector)
+                    if element and element.is_displayed():
+                        self.config.log("Login form detected - session expired", "warning")
+                        return True
+                except:
+                    continue
+        except:
+            pass
+        
+        # STRICT: Very specific text that indicates real login requirement
+        critical_session_indicators = [
+            "session has expired",  # Exact phrase
+            "you must be logged in",  # Exact phrase
+            "sign in to continue",  # LinkedIn's phrase
         ]
         
-        # Check page content
-        if any(indicator in page_source for indicator in session_indicators):
-            return True
-        
-        # Check if redirected to login page
-        if "linkedin.com/login" in url or "linkedin.com/feed" not in url:
-            return True
-        
-        return False
+        return any(indicator in page_source for indicator in critical_session_indicators)
 
     def _check_network_error(self, page_source: str) -> bool:
         """Check for network or connection errors."""
@@ -294,6 +337,19 @@ class ErrorRecoveryManager:
                 
                 # Handle specific error types
                 if error_type == ErrorType.CAPTCHA:
+                    # Take screenshot for debugging
+                    try:
+                        import os
+                        import time
+                        from config.settings import logs_folder_path
+                        screenshot_dir = os.path.join(logs_folder_path, "screenshots")
+                        os.makedirs(screenshot_dir, exist_ok=True)
+                        screenshot_path = os.path.join(screenshot_dir, f"captcha_{int(time.time())}.png")
+                        self.driver.save_screenshot(screenshot_path)
+                        self.config.log(f"CAPTCHA screenshot saved: {screenshot_path}", "info")
+                    except Exception as e:
+                        self.config.log(f"Could not save screenshot: {e}", "debug")
+                    
                     self.config.log(
                         f"CAPTCHA detected. Pausing automation. Please solve and press resume.",
                         "warning"

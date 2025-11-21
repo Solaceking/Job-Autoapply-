@@ -100,6 +100,26 @@ llm_provider = ""
 llm_cache_file = "logs/llm_cache.json"
 
 
+# >>>>>>>>>>> AI FEATURES SETTINGS <<<<<<<<<<<
+
+# Enable AI for question answering (uses AI from config/secrets.py)
+use_ai_for_questions = True         # True or False
+
+# Enable smart job filtering (AI pre-screens jobs before applying)
+enable_smart_filtering = True       # True or False
+
+# Minimum match score to apply to a job (0-100%)
+# Jobs below this threshold will be skipped automatically
+min_match_score = 40                # Lowered to 40 to be more permissive
+
+# Auto-apply threshold (jobs above this score auto-apply without confirmation)
+# Set to 100 to always ask for confirmation
+auto_apply_threshold = 75           # Recommended: 75
+
+# Show detailed match information in console (strengths, gaps)
+show_match_details = True           # True or False
+
+
 
 
 

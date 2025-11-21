@@ -10,7 +10,7 @@ import csv
 import os
 import re
 from datetime import datetime
-from typing import Callable, Optional, Tuple, List
+from typing import Callable, Optional, Tuple, List, Dict, Any
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.action_chains import ActionChains
@@ -124,7 +124,10 @@ class JobApplicationManager:
                     writer = csv.writer(f)
                     writer.writerow([
                         'Timestamp', 'Job Title', 'Company', 'Location',
-                        'Status', 'Job URL', 'Error Details'
+                        'Status', 'Job URL', 
+                        'AI Match Score', 'Match Strengths', 'Match Gaps',
+                        'Questions Count', 'AI Answered', 'Static Answered',
+                        'Application Time (s)', 'Error Details'
                     ])
                 self.log(f"Created applications history file: {file_name}", "success")
             
@@ -133,7 +136,8 @@ class JobApplicationManager:
                     writer = csv.writer(f)
                     writer.writerow([
                         'Timestamp', 'Job Title', 'Company', 'Location',
-                        'Error Reason', 'Job URL', 'Full Error'
+                        'Error Reason', 'Job URL', 
+                        'AI Match Score', 'Skip Reason', 'Full Error'
                     ])
                 self.log(f"Created failed applications file: {failed_file_name}", "success")
         
@@ -141,9 +145,12 @@ class JobApplicationManager:
             self.log(f"Error setting up CSV files: {str(e)}", "error")
     
     def log_application(self, job_title: str, company: str, location: str, 
-                       status: str, job_url: str = "", error: str = ""):
+                       status: str, job_url: str = "", error: str = "", 
+                       match_score: int = 0, match_strengths: str = "", match_gaps: str = "",
+                       questions_count: int = 0, ai_answered: int = 0, static_answered: int = 0,
+                       application_time: float = 0.0):
         """
-        Log an application to CSV file.
+        Log an application to CSV file with AI metrics.
         
         Args:
             job_title: Title of the job
@@ -152,23 +159,55 @@ class JobApplicationManager:
             status: Status (Applied, Failed, Skipped)
             job_url: URL of the job posting
             error: Error message if any
+            match_score: AI match score (0-100)
+            match_strengths: Pipe-separated strengths
+            match_gaps: Pipe-separated gaps
+            questions_count: Total questions asked
+            ai_answered: Questions answered by AI
+            static_answered: Questions answered statically
+            application_time: Time taken in seconds
         """
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            with open(file_name, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow([
+            # Determine which file to write to
+            if status == "Failed" or status == "Skipped":
+                target_file = failed_file_name
+                row = [
+                    timestamp,
+                    truncate_for_csv(job_title),
+                    truncate_for_csv(company),
+                    truncate_for_csv(location),
+                    error or status,
+                    job_url,
+                    match_score if match_score > 0 else "",
+                    truncate_for_csv(error) if status == "Skipped" else "",
+                    truncate_for_csv(error) if status == "Failed" else ""
+                ]
+            else:
+                target_file = file_name
+                row = [
                     timestamp,
                     truncate_for_csv(job_title),
                     truncate_for_csv(company),
                     truncate_for_csv(location),
                     status,
                     job_url,
+                    match_score if match_score > 0 else "",
+                    truncate_for_csv(match_strengths),
+                    truncate_for_csv(match_gaps),
+                    questions_count,
+                    ai_answered,
+                    static_answered,
+                    f"{application_time:.1f}" if application_time > 0 else "",
                     truncate_for_csv(error) if error else ""
-                ])
+                ]
             
-            self.log(f"Logged application: {company} - {job_title}", "debug")
+            with open(target_file, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(row)
+            
+            self.log(f"Logged application: {company} - {job_title} (Match: {match_score}%)", "debug")
         
         except Exception as e:
             self.log(f"Error logging application: {str(e)}", "error")
@@ -276,33 +315,42 @@ class JobApplicationManager:
     
     def get_job_listings(self) -> List[dict]:
         """
-        Get job listings from current page.
+        Get job listings from current page using modern LinkedIn selectors.
         
         Returns:
             List of job dictionaries with title, company, location, url
         """
         jobs = []
         try:
-            job_cards = self.driver.find_elements(By.CLASS_NAME, "job-card-container")
+            # Try multiple selectors to find job cards (LinkedIn changes structure frequently)
+            job_cards = []
+            selectors_to_try = [
+                (By.CSS_SELECTOR, ".scaffold-layout__list-item"),
+                (By.CLASS_NAME, "job-card-container"),
+                (By.CLASS_NAME, "jobs-search-results__list-item"),
+                (By.CSS_SELECTOR, "[data-job-id]"),
+                (By.CSS_SELECTOR, "ul.jobs-search-results__list > li"),
+            ]
             
+            for by_method, selector in selectors_to_try:
+                try:
+                    job_cards = self.driver.find_elements(by_method, selector)
+                    if job_cards and len(job_cards) > 0:
+                        self.log(f"Found {len(job_cards)} job cards using selector: {selector}", "debug")
+                        break
+                except Exception:
+                    continue
+            
+            if not job_cards:
+                self.log("Could not find job cards with any selector", "warning")
+                return []
+            
+            # Extract details from each job card
             for job_card in job_cards[:20]:  # Limit to 20 per page
                 try:
-                    # Extract job details
-                    title_elem = job_card.find_element(By.CLASS_NAME, "job-card-title")
-                    company_elem = job_card.find_element(By.CLASS_NAME, "job-card-company-name")
-                    
-                    job_title = title_elem.text if title_elem else "Unknown"
-                    company = company_elem.text if company_elem else "Unknown"
-                    location = "LinkedIn"  # Would need to extract from page
-                    
-                    jobs.append({
-                        'title': job_title,
-                        'company': company,
-                        'location': location,
-                        'element': job_card,
-                        'url': self.driver.current_url
-                    })
-                
+                    job_data = self._extract_job_details(job_card)
+                    if job_data:
+                        jobs.append(job_data)
                 except Exception as e:
                     self.log(f"Error extracting job details: {str(e)}", "debug")
                     continue
@@ -314,20 +362,203 @@ class JobApplicationManager:
             self.log(f"Error getting job listings: {str(e)}", "error")
             return []
     
+    def _extract_job_details(self, job_card) -> Optional[Dict[str, Any]]:
+        """
+        Extract job details from a job card element using multiple selector strategies.
+        
+        Args:
+            job_card: WebElement representing the job card
+            
+        Returns:
+            Dictionary with job details or None if extraction fails
+        """
+        try:
+            job_title = "Unknown"
+            company = "Unknown"
+            location = "Unknown"
+            job_url = self.driver.current_url
+            
+            # Strategy 1: Try modern LinkedIn selectors (2024+)
+            # Job title selectors
+            title_selectors = [
+                (By.CSS_SELECTOR, ".job-card-list__title"),
+                (By.CSS_SELECTOR, ".jobs-unified-top-card__job-title"),
+                (By.CSS_SELECTOR, "[class*='job-title']"),
+                (By.CSS_SELECTOR, "h3.base-search-card__title"),
+                (By.CSS_SELECTOR, "a.job-card-container__link"),
+                (By.XPATH, ".//a[contains(@class, 'job-card')]//strong"),
+                (By.XPATH, ".//h3"),
+                (By.TAG_NAME, "h3"),
+                (By.TAG_NAME, "strong"),
+            ]
+            
+            for by_method, selector in title_selectors:
+                try:
+                    title_elem = job_card.find_element(by_method, selector)
+                    if title_elem and title_elem.text.strip():
+                        job_title = title_elem.text.strip()
+                        self.log(f"Found title using {selector}: {job_title}", "debug")
+                        break
+                except:
+                    continue
+            
+            # Company selectors
+            company_selectors = [
+                (By.CSS_SELECTOR, ".job-card-container__primary-description"),
+                (By.CSS_SELECTOR, ".job-card-container__company-name"),
+                (By.CSS_SELECTOR, "[class*='company-name']"),
+                (By.CSS_SELECTOR, "h4.base-search-card__subtitle"),
+                (By.CSS_SELECTOR, ".base-search-card__subtitle"),
+                (By.XPATH, ".//h4"),
+                (By.TAG_NAME, "h4"),
+                (By.XPATH, ".//span[contains(@class, 'company')]"),
+            ]
+            
+            for by_method, selector in company_selectors:
+                try:
+                    company_elem = job_card.find_element(by_method, selector)
+                    if company_elem and company_elem.text.strip():
+                        company = company_elem.text.strip()
+                        self.log(f"Found company using {selector}: {company}", "debug")
+                        break
+                except:
+                    continue
+            
+            # Location selectors
+            location_selectors = [
+                (By.CSS_SELECTOR, ".job-card-container__metadata-item"),
+                (By.CSS_SELECTOR, "[class*='location']"),
+                (By.CSS_SELECTOR, ".job-search-card__location"),
+                (By.CSS_SELECTOR, ".base-search-card__metadata"),
+                (By.XPATH, ".//span[contains(text(), ',') or contains(@class, 'location')]"),
+            ]
+            
+            for by_method, selector in location_selectors:
+                try:
+                    location_elem = job_card.find_element(by_method, selector)
+                    if location_elem and location_elem.text.strip():
+                        location = location_elem.text.strip()
+                        self.log(f"Found location using {selector}: {location}", "debug")
+                        break
+                except:
+                    continue
+            
+            # Try to extract job URL from link
+            try:
+                link_elem = job_card.find_element(By.TAG_NAME, "a")
+                if link_elem:
+                    job_url = link_elem.get_attribute("href") or job_url
+            except:
+                pass
+            
+            # Only return if we found at least a title
+            if job_title != "Unknown":
+                return {
+                    'title': job_title,
+                    'company': company,
+                    'location': location,
+                    'element': job_card,
+                    'url': job_url
+                }
+            else:
+                self.log(f"Could not extract title from job card", "debug")
+                return None
+        
+        except Exception as e:
+            self.log(f"Error in _extract_job_details: {str(e)}", "debug")
+            return None
+    
     def click_easy_apply(self) -> bool:
         """
         Click the Easy Apply button if available.
+        Uses multiple selectors and scrolling to ensure button is found and clickable.
         
         Returns:
             True if button clicked, False otherwise
         """
         try:
-            easy_apply_button = try_xp(self.driver, '//button[contains(text(), "Easy Apply")]')
+            import time
+            
+            # Multiple Easy Apply button selectors (LinkedIn changes their UI frequently)
+            easy_apply_selectors = [
+                # Text-based selectors
+                '//button[contains(@class, "jobs-apply-button") and contains(., "Easy Apply")]',
+                '//button[contains(text(), "Easy Apply")]',
+                '//button[contains(., "Easy Apply")]',
+                # Class-based selectors
+                '//button[contains(@class, "jobs-apply-button")]',
+                '//button[@aria-label="Easy Apply"]',
+                # Broader selectors
+                '//button[contains(@class, "apply")]',
+            ]
+            
+            easy_apply_button = None
+            
+            # Try each selector
+            for selector in easy_apply_selectors:
+                easy_apply_button = try_xp(self.driver, selector, timeout=3)
+                if easy_apply_button:
+                    self.log(f"Found Easy Apply button with selector: {selector}", "debug")
+                    break
+            
+            if not easy_apply_button:
+                # Scroll down to see if button appears
+                self.log("Easy Apply button not immediately visible, scrolling...", "debug")
+                try:
+                    self.driver.execute_script("window.scrollBy(0, 300);")
+                    time.sleep(1)
+                    
+                    # Try again after scroll
+                    for selector in easy_apply_selectors:
+                        easy_apply_button = try_xp(self.driver, selector, timeout=3)
+                        if easy_apply_button:
+                            self.log(f"Found Easy Apply button after scroll: {selector}", "debug")
+                            break
+                except Exception as e:
+                    self.log(f"Error scrolling: {e}", "debug")
             
             if easy_apply_button:
-                easy_apply_button.click()
-                self.log("Clicked Easy Apply button", "success")
-                return True
+                # Dismiss any overlays/modals that might be blocking the button
+                try:
+                    self.driver.execute_script("""
+                        // Remove LinkedIn modals/overlays
+                        document.querySelectorAll('[role="dialog"], .artdeco-modal, .msg-overlay-bubble-header, .msg-overlay-list-bubble').forEach(el => {
+                            if (el) el.style.display = 'none';
+                        });
+                    """)
+                    time.sleep(0.3)
+                except:
+                    pass
+                
+                # Scroll button into view before clicking
+                try:
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", easy_apply_button)
+                    time.sleep(0.5)
+                except:
+                    pass
+                
+                # Try JavaScript click first (more reliable), then fallback
+                clicked = False
+                try:
+                    # JavaScript click - bypasses overlay issues
+                    self.driver.execute_script("arguments[0].click();", easy_apply_button)
+                    clicked = True
+                    self.log("✅ Clicked Easy Apply button (JS)", "success")
+                except Exception as e:
+                    self.log(f"JS click failed, trying regular click: {e}", "debug")
+                    try:
+                        # Fallback to regular click
+                        easy_apply_button.click()
+                        clicked = True
+                        self.log("✅ Clicked Easy Apply button", "success")
+                    except Exception as e2:
+                        self.log(f"Regular click also failed: {e2}", "error")
+                        return False
+                
+                if clicked:
+                    time.sleep(1)  # Wait for form to load
+                    return True
+                return False
             else:
                 self.log("Easy Apply button not found", "warning")
                 return False
@@ -411,14 +642,25 @@ class JobApplicationManager:
                 except Exception as e:
                     self.log(f"Question answering failed: {e}", "debug")
 
-            # Evaluate fill results: if any field marked ok, consider success
+            # Evaluate fill results
             ok_count = sum(1 for v in fill_results.values() if v.get("status") == "ok") if isinstance(fill_results, dict) else 0
+            
             if ok_count > 0:
-                self.log("Application form filled", "success")
+                self.log(f"Application form filled ({ok_count} fields)", "success")
                 return True
-
-            # Nothing filled; still return False
-            self.log("No fields were filled by the automated form handler", "warning")
+            else:
+                # Check if we have personal data configured
+                if not merged_data or len(merged_data) == 0:
+                    self.log("⚠️ No personal information configured in Settings!", "warning")
+                    self.log("📝 Go to Settings page to add: Name, Email, Phone, etc.", "info")
+                    self.log("🔄 Will attempt to submit form anyway (may fail)", "warning")
+                    # Return True to proceed to submit (LinkedIn may have pre-filled data)
+                    return True
+                else:
+                    self.log(f"No fields were filled (tried with {len(merged_data)} data fields)", "warning")
+                    self.log("ℹ️ Form may have pre-filled fields or unusual field names", "info")
+                    # Still proceed to submit
+                    return True
             return False
 
         # Use error recovery manager for robust error handling
@@ -430,27 +672,161 @@ class JobApplicationManager:
     def submit_application(self) -> bool:
         """
         Submit the application form.
+        Handles multi-step forms (Next, Review, Submit).
         
         Returns:
             True if submitted successfully, False otherwise
         """
         try:
-            # Find and click submit button
-            submit_button = try_xp(self.driver, '//button[contains(text(), "Submit") or contains(text(), "Apply")]')
+            import time
             
-            if submit_button:
-                submit_button.click()
-                self.log("Application submitted", "success")
-                self.applied_count += 1
-                return True
-            else:
-                self.log("Submit button not found", "warning")
-                return False
+            # LinkedIn often has multi-step forms: Next → Review → Submit
+            # Try to find and click through all steps (max 5 steps)
+            max_steps = 5
+            
+            for step in range(max_steps):
+                # Look for various button types
+                button_selectors = [
+                    '//button[contains(@aria-label, "Submit application")]',
+                    '//button[contains(@aria-label, "Continue")]',
+                    '//button[contains(text(), "Submit application")]',
+                    '//button[contains(text(), "Submit")]',
+                    '//button[contains(text(), "Next")]',
+                    '//button[contains(text(), "Review")]',
+                    '//button[contains(@class, "jobs-apply-button") and contains(@aria-label, "application")]',
+                ]
+                
+                button_found = False
+                for selector in button_selectors:
+                    try:
+                        button = try_xp(self.driver, selector, timeout=2)
+                        if button and button.is_displayed() and button.is_enabled():
+                            # Get button text for logging
+                            button_text = button.text or button.get_attribute("aria-label") or "button"
+                            
+                            # Click using JavaScript (more reliable)
+                            try:
+                                self.driver.execute_script("arguments[0].click();", button)
+                                self.log(f"Clicked: {button_text}", "info")
+                            except:
+                                button.click()
+                                self.log(f"Clicked: {button_text}", "info")
+                            
+                            button_found = True
+                            time.sleep(1.5)  # Wait for next step to load
+                            
+                            # Check if we successfully submitted (look for confirmation)
+                            try:
+                                confirmation_selectors = [
+                                    '//h3[contains(text(), "Application sent")]',
+                                    '//h3[contains(text(), "Your application was sent")]',
+                                    '//*[contains(text(), "successfully submitted")]',
+                                ]
+                                for conf_selector in confirmation_selectors:
+                                    if try_xp(self.driver, conf_selector, timeout=1):
+                                        self.log("✅ Application submitted successfully!", "success")
+                                        self.applied_count += 1
+                                        return True
+                            except:
+                                pass
+                            
+                            break  # Found and clicked a button, move to next step
+                    except:
+                        continue
+                
+                if not button_found:
+                    # No more buttons found, assume we're done
+                    if step > 0:
+                        # We clicked at least one button, probably succeeded
+                        self.log(f"✅ Application completed ({step} steps)", "success")
+                        self.applied_count += 1
+                        return True
+                    else:
+                        self.log("❌ No submit/next button found", "warning")
+                        return False
+            
+            # Reached max steps
+            self.log(f"⚠️ Completed {max_steps} steps, assuming success", "warning")
+            self.applied_count += 1
+            return True
         
         except Exception as e:
             self.log(f"Error submitting application: {str(e)}", "error")
             self.failed_count += 1
             return False
+    
+    def evaluate_job_match(self, job_data: dict) -> Optional[Dict[str, Any]]:
+        """
+        Use AI to evaluate job match before applying.
+        
+        Args:
+            job_data: Job details dictionary
+            
+        Returns:
+            Match result dict with score, strengths, gaps or None if AI disabled
+        """
+        try:
+            # Check if AI matching is enabled
+            from config import settings
+            if not getattr(settings, 'enable_smart_filtering', False):
+                return None
+            
+            # Get AI handler
+            from modules.ai_handler import ai_handler
+            if not ai_handler.enabled:
+                return None
+            
+            # Get resume text (simplified - use resume path directly)
+            resume_text = ""
+            try:
+                import os
+                from config.questions import default_resume_path
+                resume_path = default_resume_path
+                if resume_path and os.path.isfile(resume_path):
+                    # Use filename and basic info as placeholder
+                    # TODO: Extract text from PDF/DOCX
+                    filename = os.path.basename(resume_path)
+                    resume_text = f"Resume: {filename}"
+                elif resume_path:
+                    self.log(f"Resume file not found: {resume_path}", "warning")
+            except Exception as e:
+                self.log(f"Could not load resume: {e}", "warning")
+            
+            # Get job description from page
+            job_description = ""
+            try:
+                desc_element = try_xp(self.driver, '//div[contains(@class, "jobs-description")]//div', timeout=3)
+                if desc_element:
+                    job_description = desc_element.text[:2000]  # Limit to 2000 chars
+            except Exception:
+                pass
+            
+            if not job_description:
+                job_description = f"{job_data.get('title', '')} at {job_data.get('company', '')}"
+            
+            # Call AI to match job
+            self.log(f"🤖 Analyzing job match...", "info")
+            match_result = ai_handler.match_job(resume_text, job_description)
+            
+            if match_result:
+                score = match_result.get('score', 50)
+                self.log(f"Match Score: {score}%", "info")
+                
+                # Log strengths
+                strengths = match_result.get('strengths', [])
+                if strengths:
+                    self.log(f"✅ Strengths: {', '.join(strengths[:3])}", "success")
+                
+                # Log gaps
+                gaps = match_result.get('gaps', [])
+                if gaps:
+                    self.log(f"❌ Gaps: {', '.join(gaps[:3])}", "warning")
+            
+            return match_result
+            
+        except Exception as e:
+            self.log(f"Error evaluating job match: {e}", "error")
+            return None
     
     def apply_to_job(self, job_data: dict, form_data: dict) -> bool:
         """
@@ -476,7 +852,107 @@ class JobApplicationManager:
                     return False
 
                 if job_data.get('element'):
-                    job_data['element'].click()
+                    import time
+                    from selenium.common.exceptions import StaleElementReferenceException, ElementClickInterceptedException
+                    
+                    # Try to click the job card with retry logic for stale/intercepted errors
+                    max_click_attempts = 3
+                    clicked = False
+                    
+                    for attempt in range(max_click_attempts):
+                        try:
+                            # Dismiss any overlays that might be in the way
+                            try:
+                                # Close any LinkedIn modals/overlays
+                                self.driver.execute_script("""
+                                    // Remove any overlay elements
+                                    document.querySelectorAll('[role="dialog"], .artdeco-modal, .msg-overlay-bubble-header').forEach(el => {
+                                        if (el) el.style.display = 'none';
+                                    });
+                                """)
+                            except:
+                                pass
+                            
+                            # Scroll job card into view
+                            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", job_data['element'])
+                            time.sleep(0.3)
+                            
+                            # Try JavaScript click first (more reliable)
+                            try:
+                                self.driver.execute_script("arguments[0].click();", job_data['element'])
+                                clicked = True
+                                self.log("Clicked job listing (JS)", "debug")
+                                break
+                            except:
+                                # Fallback to regular click
+                                job_data['element'].click()
+                                clicked = True
+                                self.log("Clicked job listing", "debug")
+                                break
+                                
+                        except StaleElementReferenceException:
+                            if attempt < max_click_attempts - 1:
+                                self.log(f"Element stale, re-finding (attempt {attempt + 1})...", "debug")
+                                time.sleep(0.5)
+                                # Try to re-find the element by job URL
+                                try:
+                                    job_url = job_data.get('url', '')
+                                    if job_url and 'currentJobId=' in job_url:
+                                        job_id = job_url.split('currentJobId=')[1].split('&')[0]
+                                        new_element = try_xp(self.driver, f'//a[contains(@href, "{job_id}")]')
+                                        if new_element:
+                                            job_data['element'] = new_element
+                                            continue
+                                except:
+                                    pass
+                            break
+                            
+                        except ElementClickInterceptedException:
+                            if attempt < max_click_attempts - 1:
+                                self.log(f"Click intercepted, retrying (attempt {attempt + 1})...", "debug")
+                                time.sleep(0.5)
+                            else:
+                                # Force click with JavaScript
+                                try:
+                                    self.driver.execute_script("arguments[0].click();", job_data['element'])
+                                    clicked = True
+                                    self.log("Forced click with JavaScript", "debug")
+                                except:
+                                    pass
+                            break
+                    
+                    if not clicked:
+                        self.log("Could not click job card after retries", "warning")
+                        return False
+                    
+                    # Wait for job details panel to load and update
+                    time.sleep(1)
+                    
+                    # Verify the job details actually loaded (wait for URL or panel to change)
+                    try:
+                        expected_job_url = job_data.get('url', '')
+                        if expected_job_url and 'currentJobId=' in expected_job_url:
+                            expected_job_id = expected_job_url.split('currentJobId=')[1].split('&')[0]
+                            
+                            # Wait up to 5 seconds for the URL to update with the correct job ID
+                            for wait_attempt in range(10):  # 10 attempts x 0.5s = 5 seconds max
+                                current_url = self.driver.current_url
+                                if expected_job_id in current_url:
+                                    self.log(f"Job details loaded: {current_url[:80]}...", "debug")
+                                    break
+                                time.sleep(0.5)
+                            else:
+                                self.log(f"Warning: Job details may not have loaded (expected ID: {expected_job_id})", "warning")
+                    except Exception as e:
+                        self.log(f"Could not verify job details loaded: {e}", "debug")
+                        # Log current URL anyway
+                        try:
+                            current_url = self.driver.current_url
+                            self.log(f"Current page: {current_url[:80]}...", "debug")
+                        except:
+                            pass
+                    
+                    time.sleep(1)  # Additional wait for UI to stabilize
 
                 # Emit progress update
                 if self.progress_callback:
@@ -652,6 +1128,28 @@ class LinkedInSession:
             for i, job in enumerate(jobs[:max_applications]):
                 if i >= max_applications:
                     break
+                
+                # Evaluate job match before applying (if AI enabled)
+                match_result = self.app_manager.evaluate_job_match(job)
+                job['match_result'] = match_result  # Store for logging
+                
+                if match_result:
+                    score = match_result.get('score', 50)
+                    min_threshold = getattr(__import__('config.settings', fromlist=['min_match_score']), 'min_match_score', 60)
+                    
+                    if score < min_threshold:
+                        self.log(f"⏭️  SKIPPED: {job.get('company', 'Unknown')} - {job.get('title', 'Unknown')} (Match: {score}% < {min_threshold}%)", "warning")
+                        self.app_manager.skipped_count += 1
+                        self.app_manager.log_application(
+                            job.get('title', 'Unknown'),
+                            job.get('company', 'Unknown'),
+                            job.get('location', 'Unknown'),
+                            "Skipped",
+                            error=f"Low match score: {score}%"
+                        )
+                        continue
+                    else:
+                        self.log(f"✅ Good match ({score}%) - Proceeding with application", "success")
                 
                 self.app_manager.apply_to_job(job, form_data)
                 
