@@ -109,22 +109,26 @@ class QADatabaseDialog(QtWidgets.QDialog):
     
     def _setup_ui(self):
         """Setup the dialog UI"""
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        # Set dialog background color
+        self.setStyleSheet(f"QDialog {{ background-color: {MaterialColors.BACKGROUND}; }}")
         
-        # Header
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(32, 32, 32, 32)
+        layout.setSpacing(24)
+        
+        # Header with bold styling
         header = QtWidgets.QLabel("Question & Answer Database")
         header.setStyleSheet(f"""
-            font-size: 32px;
+            font-size: 48px;
             font-weight: 400;
             color: {MaterialColors.TEXT_PRIMARY};
-            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+            margin-bottom: 4px;
         """)
         layout.addWidget(header)
         
         subtitle = QtWidgets.QLabel("View, edit, and manage stored questions and answers")
-        subtitle.setStyleSheet(f"font-size: 14px; color: {MaterialColors.TEXT_SECONDARY};")
+        subtitle.setStyleSheet(f"font-size: 16px; color: {MaterialColors.TEXT_SECONDARY}; margin-bottom: 8px;")
         layout.addWidget(subtitle)
         
         # Search bar
@@ -134,18 +138,23 @@ class QADatabaseDialog(QtWidgets.QDialog):
         search_container.addWidget(search_label)
         
         self.search_box = QtWidgets.QLineEdit()
-        self.search_box.setPlaceholderText("Search questions or answers...")
+        self.search_box.setPlaceholderText("🔍 Search questions, answers, companies...")
+        self.search_box.setMinimumHeight(48)
         self.search_box.textChanged.connect(self._filter_table)
         self.search_box.setStyleSheet("""
             QLineEdit {
-                padding: 8px 12px;
+                padding: 12px 16px;
                 border: 2px solid #e5e7eb;
-                border-radius: 6px;
-                font-size: 14px;
+                border-radius: 8px;
+                font-size: 15px;
                 background-color: white;
             }
             QLineEdit:focus {
                 border-color: #1a73e8;
+                border-width: 2px;
+            }
+            QLineEdit:hover {
+                border-color: #cbd5e1;
             }
         """)
         search_container.addWidget(self.search_box)
@@ -166,99 +175,120 @@ class QADatabaseDialog(QtWidgets.QDialog):
         self.table.setStyleSheet("""
             QTableWidget {
                 background-color: white;
-                border: 2px solid #e5e7eb;
-                border-radius: 8px;
+                border: none;
+                border-radius: 12px;
                 gridline-color: #f3f4f6;
             }
             QTableWidget::item {
-                padding: 8px;
+                padding: 16px 12px;
                 border: none;
+                font-size: 14px;
             }
             QHeaderView::section {
-                background-color: #f9fafb;
-                color: #374151;
-                font-size: 12px;
-                font-weight: 600;
+                background-color: #f8fafc;
+                color: #475569;
+                font-size: 13px;
+                font-weight: 700;
                 text-transform: uppercase;
-                letter-spacing: 0.5px;
-                padding: 10px;
+                letter-spacing: 0.8px;
+                padding: 16px 12px;
                 border: none;
-                border-bottom: 2px solid #e5e7eb;
+                border-bottom: 3px solid #e2e8f0;
             }
             QTableWidget::item:alternate {
-                background-color: #f9fafb;
+                background-color: #f8fafc;
             }
             QTableWidget::item:selected {
-                background-color: #dbeafe;
-                color: #1e40af;
+                background-color: #e0f2fe;
+                color: #0c4a6e;
+                font-weight: 500;
             }
         """)
         layout.addWidget(self.table)
         
-        # Stats label
+        # Stats label with card styling
+        stats_container = QtWidgets.QWidget()
+        stats_container.setStyleSheet("""
+            QWidget {
+                background-color: #f0f9ff;
+                border-radius: 8px;
+                padding: 12px 16px;
+            }
+        """)
+        stats_layout = QtWidgets.QHBoxLayout(stats_container)
+        stats_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.stats_label = QtWidgets.QLabel()
-        self.stats_label.setStyleSheet(f"font-size: 13px; color: {MaterialColors.TEXT_SECONDARY};")
-        layout.addWidget(self.stats_label)
+        self.stats_label.setStyleSheet(f"font-size: 14px; font-weight: 600; color: {MaterialColors.PRIMARY};")
+        stats_layout.addWidget(self.stats_label)
+        
+        layout.addWidget(stats_container)
         
         # Bottom buttons
         buttons = QtWidgets.QHBoxLayout()
         
         refresh_btn = QtWidgets.QPushButton("REFRESH")
-        refresh_btn.setMinimumHeight(40)
+        refresh_btn.setMinimumHeight(48)
+        refresh_btn.setMinimumWidth(140)
         refresh_btn.clicked.connect(self._load_data)
         refresh_btn.setStyleSheet("""
             QPushButton {
                 background-color: #6366f1;
                 color: white;
                 border: none;
-                border-radius: 6px;
-                padding: 0 20px;
-                font-size: 13px;
-                font-weight: 600;
+                border-radius: 8px;
+                padding: 0 24px;
+                font-size: 14px;
+                font-weight: 700;
+                letter-spacing: 1px;
                 text-transform: uppercase;
             }
             QPushButton:hover { background-color: #4f46e5; }
-            QPushButton:pressed { background-color: #4338ca; }
+            QPushButton:pressed { background-color: #4338ca; transform: scale(0.98); }
         """)
         buttons.addWidget(refresh_btn)
         
         export_btn = QtWidgets.QPushButton("EXPORT TO CSV")
-        export_btn.setMinimumHeight(40)
+        export_btn.setMinimumHeight(48)
+        export_btn.setMinimumWidth(160)
         export_btn.clicked.connect(self._export_to_csv)
         export_btn.setStyleSheet("""
             QPushButton {
                 background-color: #10b981;
                 color: white;
                 border: none;
-                border-radius: 6px;
-                padding: 0 20px;
-                font-size: 13px;
-                font-weight: 600;
+                border-radius: 8px;
+                padding: 0 24px;
+                font-size: 14px;
+                font-weight: 700;
+                letter-spacing: 1px;
                 text-transform: uppercase;
             }
             QPushButton:hover { background-color: #059669; }
-            QPushButton:pressed { background-color: #047857; }
+            QPushButton:pressed { background-color: #047857; transform: scale(0.98); }
         """)
         buttons.addWidget(export_btn)
         
         buttons.addStretch()
         
         close_btn = QtWidgets.QPushButton("CLOSE")
-        close_btn.setMinimumHeight(40)
+        close_btn.setMinimumHeight(48)
+        close_btn.setMinimumWidth(120)
         close_btn.clicked.connect(self.accept)
         close_btn.setStyleSheet("""
             QPushButton {
                 background-color: #6b7280;
                 color: white;
                 border: none;
-                border-radius: 6px;
-                padding: 0 20px;
-                font-size: 13px;
-                font-weight: 600;
+                border-radius: 8px;
+                padding: 0 24px;
+                font-size: 14px;
+                font-weight: 700;
+                letter-spacing: 1px;
                 text-transform: uppercase;
             }
             QPushButton:hover { background-color: #4b5563; }
-            QPushButton:pressed { background-color: #374151; }
+            QPushButton:pressed { background-color: #374151; transform: scale(0.98); }
         """)
         buttons.addWidget(close_btn)
         
@@ -318,17 +348,24 @@ class QADatabaseDialog(QtWidgets.QDialog):
             
             # Actions - Edit button
             edit_btn = QtWidgets.QPushButton("EDIT")
+            edit_btn.setMinimumHeight(36)
             edit_btn.setStyleSheet("""
                 QPushButton {
                     background-color: #3b82f6;
                     color: white;
                     border: none;
-                    border-radius: 4px;
-                    padding: 4px 12px;
-                    font-size: 11px;
-                    font-weight: 600;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    font-size: 12px;
+                    font-weight: 700;
+                    letter-spacing: 0.5px;
                 }
-                QPushButton:hover { background-color: #2563eb; }
+                QPushButton:hover { 
+                    background-color: #2563eb; 
+                }
+                QPushButton:pressed {
+                    background-color: #1d4ed8;
+                }
             """)
             edit_btn.clicked.connect(lambda checked, r=row, data=q: self._edit_entry(data))
             self.table.setCellWidget(row, 6, edit_btn)
@@ -525,6 +562,9 @@ class MaterialDesignGUI(QtWidgets.QMainWindow):
         
         # Load saved personal information
         self._load_personal_settings()
+        
+        # Load stats from CSV files
+        self._load_stats_from_csv()
         
         # Show dashboard
         self._switch_page("dashboard")
@@ -3291,6 +3331,79 @@ class MaterialDesignGUI(QtWidgets.QMainWindow):
                 self._log("warning", "No personal information configured yet")
         except Exception as e:
             self._log("debug", f"Could not load personal settings: {e}")
+    
+    def _load_stats_from_csv(self):
+        """Load application statistics from CSV files"""
+        try:
+            import csv
+            from datetime import datetime
+            from config.settings import file_name, failed_file_name
+            
+            total_applied = 0
+            total_failed = 0
+            today_applied = 0
+            today_date = datetime.now().strftime("%Y-%m-%d")
+            
+            # Load successful applications
+            if os.path.exists(file_name):
+                try:
+                    with open(file_name, 'r', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            total_applied += 1
+                            # Check if applied today
+                            timestamp = row.get('Timestamp', '')
+                            if timestamp.startswith(today_date):
+                                today_applied += 1
+                except Exception as e:
+                    self._log("debug", f"Error reading applied CSV: {e}")
+            
+            # Load failed applications
+            if os.path.exists(failed_file_name):
+                try:
+                    with open(failed_file_name, 'r', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            total_failed += 1
+                except Exception as e:
+                    self._log("debug", f"Error reading failed CSV: {e}")
+            
+            # Update stats
+            self.stats["total_applied"] = total_applied
+            self.stats["total_failed"] = total_failed
+            self.stats["today_applied"] = today_applied
+            
+            # Log stats load
+            if total_applied > 0 or total_failed > 0:
+                self._log("info", f"Loaded stats: {total_applied} applied, {total_failed} failed, {today_applied} today")
+            
+            # Update dashboard labels if they exist
+            self._update_dashboard_stats()
+            
+        except Exception as e:
+            self._log("debug", f"Could not load stats from CSV: {e}")
+    
+    def _update_dashboard_stats(self):
+        """Update dashboard stat labels with current stats"""
+        try:
+            total_apps = self.stats["total_applied"]
+            total_failed = self.stats["total_failed"]
+            today_apps = self.stats["today_applied"]
+            
+            # Calculate success rate
+            success_rate = 0
+            if total_apps + total_failed > 0:
+                success_rate = round((total_apps / (total_apps + total_failed)) * 100)
+            
+            # Update labels if they exist
+            if hasattr(self, 'apps_value'):
+                self.apps_value.setText(str(total_apps))
+            if hasattr(self, 'success_value'):
+                self.success_value.setText(f"{success_rate}%")
+            if hasattr(self, 'today_value'):
+                self.today_value.setText(str(today_apps))
+        except Exception as e:
+            pass  # Silently fail if labels don't exist yet
     
     def _save_settings(self):
         """Save settings including personal information"""
