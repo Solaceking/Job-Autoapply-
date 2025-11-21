@@ -667,6 +667,11 @@ class JobApplicationManager:
         success, error_msg = self.recovery_manager.attempt_with_recovery(_fill_form_action, "Fill Application Form")
         if not success and error_msg:
             self.log(f"Error recovery: {error_msg}", "error")
+        
+        # Wait for form to process and buttons to become enabled
+        if success:
+            time.sleep(2)  # Give LinkedIn time to enable Submit/Next buttons
+            
         return success
     
     def submit_application(self) -> bool:
@@ -689,11 +694,17 @@ class JobApplicationManager:
                 button_selectors = [
                     '//button[contains(@aria-label, "Submit application")]',
                     '//button[contains(@aria-label, "Continue")]',
+                    '//button[contains(@aria-label, "Review")]',
+                    '//button[contains(@aria-label, "next")]',
                     '//button[contains(text(), "Submit application")]',
                     '//button[contains(text(), "Submit")]',
                     '//button[contains(text(), "Next")]',
                     '//button[contains(text(), "Review")]',
+                    '//button[contains(text(), "Continue")]',
+                    '//button[@data-easy-apply-next-button]',
+                    '//button[contains(@class, "artdeco-button--primary")]',
                     '//button[contains(@class, "jobs-apply-button") and contains(@aria-label, "application")]',
+                    '//footer//button[contains(@class, "artdeco-button--primary")]',
                 ]
                 
                 button_found = False
@@ -701,6 +712,16 @@ class JobApplicationManager:
                     try:
                         button = try_xp(self.driver, selector, timeout=2)
                         if button and button.is_displayed() and button.is_enabled():
+                            # Scroll button into view first
+                            try:
+                                self.driver.execute_script(
+                                    "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});",
+                                    button
+                                )
+                                time.sleep(0.5)
+                            except:
+                                pass
+                            
                             # Get button text for logging
                             button_text = button.text or button.get_attribute("aria-label") or "button"
                             
@@ -713,7 +734,7 @@ class JobApplicationManager:
                                 self.log(f"Clicked: {button_text}", "info")
                             
                             button_found = True
-                            time.sleep(1.5)  # Wait for next step to load
+                            time.sleep(2)  # Wait for next step to load (increased from 1.5s)
                             
                             # Check if we successfully submitted (look for confirmation)
                             try:
