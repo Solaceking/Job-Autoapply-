@@ -980,19 +980,75 @@ class JobApplicationManager:
                                 
                         except StaleElementReferenceException:
                             if attempt < max_click_attempts - 1:
-                                self.log(f"Element stale, re-finding (attempt {attempt + 1})...", "debug")
-                                time.sleep(0.5)
-                                # Try to re-find the element by job URL
+                                self.log(f"Element stale, re-finding (attempt {attempt + 1})...", "warning")
+                                time.sleep(1)  # Longer wait for DOM to stabilize
+                                
+                                # Strategy 1: Try to re-find by job title and company
+                                try:
+                                    job_title = job_data.get('title', '')
+                                    company = job_data.get('company', '')
+                                    
+                                    if job_title:
+                                        # Try finding by title text
+                                        title_xpaths = [
+                                            f'//h3[contains(text(), "{job_title}")]/../..',
+                                            f'//*[contains(text(), "{job_title}") and contains(@class, "job-card")]',
+                                            f'//a[contains(., "{job_title}")]/..',
+                                        ]
+                                        
+                                        for xpath in title_xpaths:
+                                            try:
+                                                new_element = try_xp(self.driver, xpath, timeout=1)
+                                                if new_element:
+                                                    job_data['element'] = new_element
+                                                    self.log(f"Re-found element using title: {job_title[:30]}", "success")
+                                                    continue  # Continue the retry loop
+                                            except:
+                                                pass
+                                except Exception as e:
+                                    self.log(f"Could not re-find by title: {str(e)}", "debug")
+                                
+                                # Strategy 2: Try to re-find by job URL/ID
                                 try:
                                     job_url = job_data.get('url', '')
                                     if job_url and 'currentJobId=' in job_url:
                                         job_id = job_url.split('currentJobId=')[1].split('&')[0]
-                                        new_element = try_xp(self.driver, f'//a[contains(@href, "{job_id}")]')
+                                        new_element = try_xp(self.driver, f'//a[contains(@href, "{job_id}")]', timeout=1)
                                         if new_element:
                                             job_data['element'] = new_element
-                                            continue
+                                            self.log(f"Re-found element using job ID: {job_id}", "success")
+                                            continue  # Continue the retry loop
                                 except:
                                     pass
+                                
+                                # Strategy 3: Re-scan the page for all job cards and find by index
+                                # This is a last resort - try to get all job cards again
+                                try:
+                                    selectors_to_try = [
+                                        (By.CSS_SELECTOR, ".scaffold-layout__list-item"),
+                                        (By.CLASS_NAME, "job-card-container"),
+                                        (By.CLASS_NAME, "jobs-search-results__list-item"),
+                                    ]
+                                    
+                                    for by_method, selector in selectors_to_try:
+                                        try:
+                                            fresh_job_cards = self.driver.find_elements(by_method, selector)
+                                            if fresh_job_cards and len(fresh_job_cards) > 0:
+                                                # Try to match by position or use first card
+                                                for card in fresh_job_cards[:5]:  # Check first 5
+                                                    try:
+                                                        card_title = card.find_element(By.CSS_SELECTOR, "h3, .job-card-list__title").text.strip()
+                                                        if job_title in card_title or card_title in job_title:
+                                                            job_data['element'] = card
+                                                            self.log(f"Re-found element by scanning page", "success")
+                                                            continue  # Continue the retry loop
+                                                    except:
+                                                        pass
+                                                break
+                                        except:
+                                            continue
+                                except Exception as e:
+                                    self.log(f"Could not re-scan page: {str(e)}", "debug")
                             break
                             
                         except ElementClickInterceptedException:
