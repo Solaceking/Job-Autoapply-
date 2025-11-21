@@ -91,6 +91,395 @@ class MaterialColors:
     TEXT_HINT = "#80868b"
 
 
+class QADatabaseDialog(QtWidgets.QDialog):
+    """Dialog for viewing and editing Q&A database entries"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Q&A Database Manager")
+        self.resize(1200, 700)
+        self.setMinimumSize(900, 600)
+        
+        # Initialize database
+        from modules.qa_database import QADatabase
+        self.qa_db = QADatabase()
+        
+        self._setup_ui()
+        self._load_data()
+    
+    def _setup_ui(self):
+        """Setup the dialog UI"""
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+        
+        # Header
+        header = QtWidgets.QLabel("Question & Answer Database")
+        header.setStyleSheet(f"""
+            font-size: 32px;
+            font-weight: 400;
+            color: {MaterialColors.TEXT_PRIMARY};
+            margin-bottom: 8px;
+        """)
+        layout.addWidget(header)
+        
+        subtitle = QtWidgets.QLabel("View, edit, and manage stored questions and answers")
+        subtitle.setStyleSheet(f"font-size: 14px; color: {MaterialColors.TEXT_SECONDARY};")
+        layout.addWidget(subtitle)
+        
+        # Search bar
+        search_container = QtWidgets.QHBoxLayout()
+        search_label = QtWidgets.QLabel("Search:")
+        search_label.setStyleSheet(f"font-size: 14px; color: {MaterialColors.TEXT_SECONDARY};")
+        search_container.addWidget(search_label)
+        
+        self.search_box = QtWidgets.QLineEdit()
+        self.search_box.setPlaceholderText("Search questions or answers...")
+        self.search_box.textChanged.connect(self._filter_table)
+        self.search_box.setStyleSheet("""
+            QLineEdit {
+                padding: 8px 12px;
+                border: 2px solid #e5e7eb;
+                border-radius: 6px;
+                font-size: 14px;
+                background-color: white;
+            }
+            QLineEdit:focus {
+                border-color: #1a73e8;
+            }
+        """)
+        search_container.addWidget(self.search_box)
+        layout.addLayout(search_container)
+        
+        # Table
+        self.table = QtWidgets.QTableWidget()
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels([
+            "Question", "Answer", "Job Title", "Company", "Times Used", "Last Used", "Actions"
+        ])
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                border: 2px solid #e5e7eb;
+                border-radius: 8px;
+                gridline-color: #f3f4f6;
+            }
+            QTableWidget::item {
+                padding: 8px;
+                border: none;
+            }
+            QHeaderView::section {
+                background-color: #f9fafb;
+                color: #374151;
+                font-size: 12px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                padding: 10px;
+                border: none;
+                border-bottom: 2px solid #e5e7eb;
+            }
+            QTableWidget::item:alternate {
+                background-color: #f9fafb;
+            }
+            QTableWidget::item:selected {
+                background-color: #dbeafe;
+                color: #1e40af;
+            }
+        """)
+        layout.addWidget(self.table)
+        
+        # Stats label
+        self.stats_label = QtWidgets.QLabel()
+        self.stats_label.setStyleSheet(f"font-size: 13px; color: {MaterialColors.TEXT_SECONDARY};")
+        layout.addWidget(self.stats_label)
+        
+        # Bottom buttons
+        buttons = QtWidgets.QHBoxLayout()
+        
+        refresh_btn = QtWidgets.QPushButton("REFRESH")
+        refresh_btn.setMinimumHeight(40)
+        refresh_btn.clicked.connect(self._load_data)
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 0 20px;
+                font-size: 13px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }
+            QPushButton:hover { background-color: #4f46e5; }
+            QPushButton:pressed { background-color: #4338ca; }
+        """)
+        buttons.addWidget(refresh_btn)
+        
+        export_btn = QtWidgets.QPushButton("EXPORT TO CSV")
+        export_btn.setMinimumHeight(40)
+        export_btn.clicked.connect(self._export_to_csv)
+        export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 0 20px;
+                font-size: 13px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }
+            QPushButton:hover { background-color: #059669; }
+            QPushButton:pressed { background-color: #047857; }
+        """)
+        buttons.addWidget(export_btn)
+        
+        buttons.addStretch()
+        
+        close_btn = QtWidgets.QPushButton("CLOSE")
+        close_btn.setMinimumHeight(40)
+        close_btn.clicked.connect(self.accept)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6b7280;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 0 20px;
+                font-size: 13px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }
+            QPushButton:hover { background-color: #4b5563; }
+            QPushButton:pressed { background-color: #374151; }
+        """)
+        buttons.addWidget(close_btn)
+        
+        layout.addLayout(buttons)
+    
+    def _load_data(self):
+        """Load data from Q&A database"""
+        try:
+            questions = self.qa_db.get_all_questions(limit=1000)
+            self.all_data = questions  # Store for filtering
+            self._populate_table(questions)
+            self.stats_label.setText(f"📊 Total entries: {len(questions)}")
+        except Exception as e:
+            QtWidgets.QMessageBox.warning(self, "Error", f"Failed to load Q&A database:\n{str(e)}")
+    
+    def _populate_table(self, questions):
+        """Populate table with question data"""
+        self.table.setRowCount(len(questions))
+        
+        for row, q in enumerate(questions):
+            # Question
+            question_item = QtWidgets.QTableWidgetItem(q.get('question', '')[:100])
+            question_item.setToolTip(q.get('question', ''))
+            self.table.setItem(row, 0, question_item)
+            
+            # Answer
+            answer_item = QtWidgets.QTableWidgetItem(q.get('answer', '')[:100])
+            answer_item.setToolTip(q.get('answer', ''))
+            self.table.setItem(row, 1, answer_item)
+            
+            # Job Title
+            self.table.setItem(row, 2, QtWidgets.QTableWidgetItem(q.get('job_title', '')))
+            
+            # Company
+            self.table.setItem(row, 3, QtWidgets.QTableWidgetItem(q.get('company', '')))
+            
+            # Times Used
+            self.table.setItem(row, 4, QtWidgets.QTableWidgetItem(str(q.get('times_used', 0))))
+            
+            # Last Used
+            last_used = q.get('last_used', '')
+            if last_used:
+                # Format timestamp
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(last_used)
+                    last_used = dt.strftime('%Y-%m-%d %H:%M')
+                except:
+                    pass
+            self.table.setItem(row, 5, QtWidgets.QTableWidgetItem(last_used))
+            
+            # Actions - Edit button
+            edit_btn = QtWidgets.QPushButton("EDIT")
+            edit_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #3b82f6;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 4px 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }
+                QPushButton:hover { background-color: #2563eb; }
+            """)
+            edit_btn.clicked.connect(lambda checked, r=row, data=q: self._edit_entry(data))
+            self.table.setCellWidget(row, 6, edit_btn)
+    
+    def _filter_table(self, text):
+        """Filter table based on search text"""
+        if not hasattr(self, 'all_data'):
+            return
+        
+        if not text:
+            self._populate_table(self.all_data)
+            return
+        
+        text_lower = text.lower()
+        filtered = [
+            q for q in self.all_data
+            if text_lower in q.get('question', '').lower() or 
+               text_lower in q.get('answer', '').lower() or
+               text_lower in q.get('job_title', '').lower() or
+               text_lower in q.get('company', '').lower()
+        ]
+        self._populate_table(filtered)
+        self.stats_label.setText(f"📊 Showing {len(filtered)} of {len(self.all_data)} entries")
+    
+    def _edit_entry(self, data):
+        """Edit a Q&A entry"""
+        dialog = EditQADialog(data, self)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            # Get updated values
+            updated = dialog.get_values()
+            # Update database
+            self.qa_db.store_question(
+                updated['question'],
+                updated['answer'],
+                updated.get('job_title', ''),
+                updated.get('company', ''),
+                updated.get('job_context', '')
+            )
+            # Reload data
+            self._load_data()
+            QtWidgets.QMessageBox.information(self, "Success", "Entry updated successfully!")
+    
+    def _export_to_csv(self):
+        """Export Q&A database to CSV"""
+        from PySide6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Q&A Database",
+            "qa_database_export.csv",
+            "CSV Files (*.csv);;All Files (*.*)"
+        )
+        if file_path:
+            if self.qa_db.export_to_csv(file_path):
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Q&A Database exported successfully to:\n{file_path}"
+                )
+            else:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Error",
+                    "Failed to export Q&A database"
+                )
+
+
+class EditQADialog(QtWidgets.QDialog):
+    """Dialog for editing a single Q&A entry"""
+    
+    def __init__(self, data, parent=None):
+        super().__init__(parent)
+        self.data = data
+        self.setWindowTitle("Edit Q&A Entry")
+        self.resize(600, 500)
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        """Setup the edit dialog UI"""
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
+        
+        # Question
+        layout.addWidget(QtWidgets.QLabel("Question:"))
+        self.question_edit = QtWidgets.QTextEdit()
+        self.question_edit.setPlainText(self.data.get('question', ''))
+        self.question_edit.setMaximumHeight(100)
+        self.question_edit.setStyleSheet("padding: 8px; border: 2px solid #e5e7eb; border-radius: 4px;")
+        layout.addWidget(self.question_edit)
+        
+        # Answer
+        layout.addWidget(QtWidgets.QLabel("Answer:"))
+        self.answer_edit = QtWidgets.QTextEdit()
+        self.answer_edit.setPlainText(self.data.get('answer', ''))
+        self.answer_edit.setMaximumHeight(100)
+        self.answer_edit.setStyleSheet("padding: 8px; border: 2px solid #e5e7eb; border-radius: 4px;")
+        layout.addWidget(self.answer_edit)
+        
+        # Job Title
+        layout.addWidget(QtWidgets.QLabel("Job Title (optional):"))
+        self.job_title_edit = QtWidgets.QLineEdit(self.data.get('job_title', ''))
+        self.job_title_edit.setStyleSheet("padding: 8px; border: 2px solid #e5e7eb; border-radius: 4px;")
+        layout.addWidget(self.job_title_edit)
+        
+        # Company
+        layout.addWidget(QtWidgets.QLabel("Company (optional):"))
+        self.company_edit = QtWidgets.QLineEdit(self.data.get('company', ''))
+        self.company_edit.setStyleSheet("padding: 8px; border: 2px solid #e5e7eb; border-radius: 4px;")
+        layout.addWidget(self.company_edit)
+        
+        # Buttons
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.addStretch()
+        
+        cancel_btn = QtWidgets.QPushButton("CANCEL")
+        cancel_btn.clicked.connect(self.reject)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6b7280;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 20px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #4b5563; }
+        """)
+        buttons.addWidget(cancel_btn)
+        
+        save_btn = QtWidgets.QPushButton("SAVE")
+        save_btn.clicked.connect(self.accept)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #10b981;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 20px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #059669; }
+        """)
+        buttons.addWidget(save_btn)
+        
+        layout.addLayout(buttons)
+    
+    def get_values(self):
+        """Get updated values from form"""
+        return {
+            'question': self.question_edit.toPlainText(),
+            'answer': self.answer_edit.toPlainText(),
+            'job_title': self.job_title_edit.text(),
+            'company': self.company_edit.text(),
+            'job_context': self.data.get('job_context', '')
+        }
+
+
 class MaterialDesignGUI(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1910,6 +2299,72 @@ class MaterialDesignGUI(QtWidgets.QMainWindow):
         """)
         controls.addWidget(open_folder_btn)
         
+        # View/Edit Q&A Database button
+        qa_view_btn = QtWidgets.QPushButton("VIEW Q&A DATABASE")
+        qa_view_btn.setMinimumHeight(44)
+        qa_view_btn.setMinimumWidth(180)
+        qa_view_btn.clicked.connect(self._open_qa_database_viewer)
+        qa_view_btn.setToolTip(
+            "🗄️ View and edit the Question & Answer database.\n\n"
+            "Features:\n"
+            "• View all questions and answers encountered\n"
+            "• Edit answers to improve future applications\n"
+            "• See usage statistics and timestamps\n"
+            "• Search and filter entries\n"
+            "• Export to CSV for external editing"
+        )
+        qa_view_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #8b5cf6;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+            }
+            QPushButton:hover {
+                background-color: #7c3aed;
+            }
+            QPushButton:pressed {
+                background-color: #6d28d9;
+            }
+        """)
+        controls.addWidget(qa_view_btn)
+        
+        # Open Logs Folder button
+        logs_btn = QtWidgets.QPushButton("OPEN LOGS FOLDER")
+        logs_btn.setMinimumHeight(44)
+        logs_btn.setMinimumWidth(160)
+        logs_btn.clicked.connect(self._open_logs_folder)
+        logs_btn.setToolTip(
+            "📋 Open the logs folder for debugging.\n\n"
+            "Contains:\n"
+            "• captcha_events.csv - CAPTCHA detection log\n"
+            "• llm_cache.json - AI response cache\n"
+            "• Other runtime logs and debug files"
+        )
+        logs_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f59e0b;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+            }
+            QPushButton:hover {
+                background-color: #d97706;
+            }
+            QPushButton:pressed {
+                background-color: #b45309;
+            }
+        """)
+        controls.addWidget(logs_btn)
+        
         controls.addStretch()
         layout.addLayout(controls)
         
@@ -2435,6 +2890,58 @@ class MaterialDesignGUI(QtWidgets.QMainWindow):
                 self,
                 "Error",
                 f"Could not open reports folder:\n{str(e)}\n\nFolder path: {os.path.abspath(reports_folder)}"
+            )
+    
+    def _open_qa_database_viewer(self):
+        """Open the Q&A Database viewer/editor dialog"""
+        try:
+            dialog = QADatabaseDialog(self)
+            dialog.exec()
+            self._log("success", "Q&A Database viewer opened")
+        except Exception as e:
+            self._log("error", f"Failed to open Q&A Database viewer: {str(e)}")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Error",
+                f"Could not open Q&A Database viewer:\n{str(e)}"
+            )
+    
+    def _open_logs_folder(self):
+        """Open the logs folder (cross-platform)"""
+        try:
+            # Get the logs folder path from settings
+            from config.settings import logs_folder_path
+            logs_folder = logs_folder_path or "logs/"
+            
+            # Create folder if it doesn't exist
+            if not os.path.exists(logs_folder):
+                os.makedirs(logs_folder, exist_ok=True)
+                self._log("info", f"Created logs folder: {logs_folder}")
+            
+            # Get absolute path
+            abs_path = os.path.abspath(logs_folder)
+            
+            # Open folder in file explorer (cross-platform)
+            system = platform.system()
+            
+            if system == "Windows":
+                # Windows: Use explorer
+                os.startfile(abs_path)
+            elif system == "Darwin":
+                # macOS: Use open
+                subprocess.run(["open", abs_path], check=True)
+            else:
+                # Linux: Use xdg-open
+                subprocess.run(["xdg-open", abs_path], check=True)
+            
+            self._log("success", f"Opened logs folder: {abs_path}")
+            
+        except Exception as e:
+            self._log("error", f"Failed to open logs folder: {str(e)}")
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Error",
+                f"Could not open logs folder:\n{str(e)}\n\nFolder path: {os.path.abspath(logs_folder)}"
             )
     
     def _on_run(self):
