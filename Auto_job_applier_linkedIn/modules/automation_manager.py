@@ -781,25 +781,41 @@ class JobApplicationManager:
                             else:
                                 time.sleep(2.5)  # Standard wait for next step
                             
-                            # Check if we're stuck on the same page (URL didn't change)
+                            # Check if we're stuck on the same page
+                            # For LinkedIn Easy Apply, URL often stays the same, so check page content hash
                             current_url = self.driver.current_url
-                            if current_url == last_url and "next" in button_text.lower():
-                                stuck_count += 1
-                                if stuck_count >= 3:
-                                    self.log("⚠️ Stuck on same page after 3 clicks - likely missing required fields", "warning")
-                                    self.log("❌ Closing application and moving to next job", "warning")
-                                    # Close the modal
-                                    try:
-                                        close_button = try_xp(self.driver, '//button[@aria-label="Dismiss"]', timeout=1)
-                                        if close_button:
-                                            close_button.click()
-                                            time.sleep(1)
-                                    except:
-                                        pass
-                                    return False
-                            else:
-                                stuck_count = 0  # Reset if URL changed
+                            
+                            # Get a hash of the current form content to detect real changes
+                            try:
+                                form_content = self.driver.find_element(By.CSS_SELECTOR, 'form, .jobs-easy-apply-content').text
+                                current_page_hash = hash(form_content[:500])  # Use first 500 chars
+                            except:
+                                current_page_hash = hash(current_url)  # Fallback to URL
+                            
+                            # Only check for stuck if clicking Next button
+                            if "next" in button_text.lower():
+                                # Check if both URL and content are unchanged
+                                if current_url == last_url and current_page_hash == getattr(self, '_last_page_hash', None):
+                                    stuck_count += 1
+                                    self.log(f"⚠️ Same page detected (stuck count: {stuck_count}/3)", "debug")
+                                    if stuck_count >= 3:
+                                        self.log("⚠️ Stuck on same page after 3 clicks - likely missing required fields", "warning")
+                                        self.log("❌ Closing application and moving to next job", "warning")
+                                        # Close the modal
+                                        try:
+                                            close_button = try_xp(self.driver, '//button[@aria-label="Dismiss"]', timeout=1)
+                                            if close_button:
+                                                close_button.click()
+                                                time.sleep(1)
+                                        except:
+                                            pass
+                                        return False
+                                else:
+                                    stuck_count = 0  # Reset if URL or content changed
+                                    self.log("✓ Form content changed, progressing...", "debug")
+                            
                             last_url = current_url
+                            self._last_page_hash = current_page_hash
                             
                             # Check if we successfully submitted (look for confirmation)
                             try:
@@ -981,74 +997,88 @@ class JobApplicationManager:
                         except StaleElementReferenceException:
                             if attempt < max_click_attempts - 1:
                                 self.log(f"Element stale, re-finding (attempt {attempt + 1})...", "warning")
-                                time.sleep(1)  # Longer wait for DOM to stabilize
+                                time.sleep(1.5)  # Longer wait for DOM to stabilize
                                 
-                                # Strategy 1: Try to re-find by job title and company
-                                try:
-                                    job_title = job_data.get('title', '')
-                                    company = job_data.get('company', '')
-                                    
-                                    if job_title:
-                                        # Try finding by title text
-                                        title_xpaths = [
-                                            f'//h3[contains(text(), "{job_title}")]/../..',
-                                            f'//*[contains(text(), "{job_title}") and contains(@class, "job-card")]',
-                                            f'//a[contains(., "{job_title}")]/..',
+                                element_found = False
+                                job_title = job_data.get('title', '')
+                                
+                                # Strategy 1: Re-scan page and get fresh job cards
+                                # This is the most reliable since it gets current DOM state
+                                if not element_found:
+                                    try:
+                                        self.log("Strategy 1: Re-scanning page for fresh job cards...", "debug")
+                                        selectors_to_try = [
+                                            (By.CLASS_NAME, "job-card-container"),
+                                            (By.CSS_SELECTOR, ".scaffold-layout__list-item"),
+                                            (By.CLASS_NAME, "jobs-search-results__list-item"),
                                         ]
                                         
-                                        for xpath in title_xpaths:
+                                        for by_method, selector in selectors_to_try:
+                                            if element_found:
+                                                break
                                             try:
-                                                new_element = try_xp(self.driver, xpath, timeout=1)
-                                                if new_element:
-                                                    job_data['element'] = new_element
-                                                    self.log(f"Re-found element using title: {job_title[:30]}", "success")
-                                                    continue  # Continue the retry loop
+                                                fresh_job_cards = self.driver.find_elements(by_method, selector)
+                                                if fresh_job_cards and len(fresh_job_cards) > 0:
+                                                    self.log(f"Found {len(fresh_job_cards)} fresh job cards", "debug")
+                                                    # Try to match by title
+                                                    for idx, card in enumerate(fresh_job_cards):
+                                                        try:
+                                                            # Try multiple selectors for title
+                                                            card_title = None
+                                                            for title_sel in ["h3", ".job-card-list__title", "a.job-card-container__link", "strong"]:
+                                                                try:
+                                                                    card_title = card.find_element(By.CSS_SELECTOR, title_sel).text.strip()
+                                                                    if card_title:
+                                                                        break
+                                                                except:
+                                                                    continue
+                                                            
+                                                            if card_title:
+                                                                # Clean up duplicated text (e.g., "Sales Manager Sales Manager")
+                                                                card_title_clean = ' '.join(dict.fromkeys(card_title.split()))
+                                                                job_title_clean = ' '.join(dict.fromkeys(job_title.split()))
+                                                                
+                                                                # Match if titles are similar
+                                                                if (card_title_clean.lower() in job_title_clean.lower() or 
+                                                                    job_title_clean.lower() in card_title_clean.lower()):
+                                                                    job_data['element'] = card
+                                                                    self.log(f"✅ Re-found element (Strategy 1): {card_title_clean[:40]}", "success")
+                                                                    element_found = True
+                                                                    break
+                                                        except:
+                                                            continue
+                                                    
+                                                    # If still not found, just use the first available card
+                                                    if not element_found and len(fresh_job_cards) > 0:
+                                                        job_data['element'] = fresh_job_cards[0]
+                                                        self.log(f"⚠️ Using first available job card (couldn't match title)", "warning")
+                                                        element_found = True
+                                                    
+                                                    if element_found:
+                                                        break
                                             except:
-                                                pass
-                                except Exception as e:
-                                    self.log(f"Could not re-find by title: {str(e)}", "debug")
+                                                continue
+                                    except Exception as e:
+                                        self.log(f"Strategy 1 failed: {str(e)}", "debug")
                                 
                                 # Strategy 2: Try to re-find by job URL/ID
-                                try:
-                                    job_url = job_data.get('url', '')
-                                    if job_url and 'currentJobId=' in job_url:
-                                        job_id = job_url.split('currentJobId=')[1].split('&')[0]
-                                        new_element = try_xp(self.driver, f'//a[contains(@href, "{job_id}")]', timeout=1)
-                                        if new_element:
-                                            job_data['element'] = new_element
-                                            self.log(f"Re-found element using job ID: {job_id}", "success")
-                                            continue  # Continue the retry loop
-                                except:
-                                    pass
+                                if not element_found:
+                                    try:
+                                        self.log("Strategy 2: Searching by job ID...", "debug")
+                                        job_url = job_data.get('url', '')
+                                        if job_url and 'currentJobId=' in job_url:
+                                            job_id = job_url.split('currentJobId=')[1].split('&')[0]
+                                            new_element = try_xp(self.driver, f'//a[contains(@href, "{job_id}")]', timeout=2)
+                                            if new_element:
+                                                job_data['element'] = new_element
+                                                self.log(f"✅ Re-found element (Strategy 2): Job ID {job_id}", "success")
+                                                element_found = True
+                                    except Exception as e:
+                                        self.log(f"Strategy 2 failed: {str(e)}", "debug")
                                 
-                                # Strategy 3: Re-scan the page for all job cards and find by index
-                                # This is a last resort - try to get all job cards again
-                                try:
-                                    selectors_to_try = [
-                                        (By.CSS_SELECTOR, ".scaffold-layout__list-item"),
-                                        (By.CLASS_NAME, "job-card-container"),
-                                        (By.CLASS_NAME, "jobs-search-results__list-item"),
-                                    ]
-                                    
-                                    for by_method, selector in selectors_to_try:
-                                        try:
-                                            fresh_job_cards = self.driver.find_elements(by_method, selector)
-                                            if fresh_job_cards and len(fresh_job_cards) > 0:
-                                                # Try to match by position or use first card
-                                                for card in fresh_job_cards[:5]:  # Check first 5
-                                                    try:
-                                                        card_title = card.find_element(By.CSS_SELECTOR, "h3, .job-card-list__title").text.strip()
-                                                        if job_title in card_title or card_title in job_title:
-                                                            job_data['element'] = card
-                                                            self.log(f"Re-found element by scanning page", "success")
-                                                            continue  # Continue the retry loop
-                                                    except:
-                                                        pass
-                                                break
-                                        except:
-                                            continue
-                                except Exception as e:
-                                    self.log(f"Could not re-scan page: {str(e)}", "debug")
+                                # If element was found, continue retry loop
+                                if element_found:
+                                    continue
                             break
                             
                         except ElementClickInterceptedException:
