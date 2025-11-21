@@ -9,6 +9,7 @@ Handles job searching, form filling, and application submission.
 import csv
 import os
 import re
+import time
 from datetime import datetime
 from typing import Callable, Optional, Tuple, List, Dict, Any
 from selenium.webdriver.remote.webdriver import WebDriver
@@ -683,8 +684,6 @@ class JobApplicationManager:
             True if submitted successfully, False otherwise
         """
         try:
-            import time
-            
             # LinkedIn Easy Apply flow: Fill → Next → Next → Review → Submit
             # The typical flow has multiple "Next" buttons, then "Review", then "Submit"
             # We need to handle this specific sequence properly
