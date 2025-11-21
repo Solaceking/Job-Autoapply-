@@ -685,26 +685,54 @@ class JobApplicationManager:
         try:
             import time
             
-            # LinkedIn often has multi-step forms: Next → Review → Submit
-            # Try to find and click through all steps (max 5 steps)
-            max_steps = 5
+            # LinkedIn Easy Apply flow: Fill → Next → Next → Review → Submit
+            # The typical flow has multiple "Next" buttons, then "Review", then "Submit"
+            # We need to handle this specific sequence properly
+            max_steps = 10  # Increased to handle longer forms
             
             for step in range(max_steps):
-                # Look for various button types
+                # Check if we're on the Review page
+                try:
+                    review_page_indicators = [
+                        '//h3[contains(text(), "Review your application")]',
+                        '//*[contains(text(), "Review your application")]',
+                        '//div[contains(@class, "jobs-easy-apply-content") and contains(., "Review")]',
+                    ]
+                    for indicator in review_page_indicators:
+                        if try_xp(self.driver, indicator, timeout=1):
+                            self.log("📋 On Review page - checking details before submit", "info")
+                            time.sleep(1)  # Brief pause on review page
+                            break
+                except:
+                    pass
+                
+                # IMPORTANT: Order matters! Try in sequence: Next → Review → Submit
+                # Priority order based on LinkedIn's actual flow:
+                # 1. Next buttons (early steps)
+                # 2. Review button (penultimate step)
+                # 3. Submit button (final step)
                 button_selectors = [
-                    '//button[contains(@aria-label, "Submit application")]',
-                    '//button[contains(@aria-label, "Continue")]',
-                    '//button[contains(@aria-label, "Review")]',
+                    # Priority 1: Next/Continue buttons (most common in early steps)
+                    '//button[contains(@aria-label, "Continue to next step")]',
                     '//button[contains(@aria-label, "next")]',
-                    '//button[contains(text(), "Submit application")]',
-                    '//button[contains(text(), "Submit")]',
                     '//button[contains(text(), "Next")]',
-                    '//button[contains(text(), "Review")]',
                     '//button[contains(text(), "Continue")]',
                     '//button[@data-easy-apply-next-button]',
-                    '//button[contains(@class, "artdeco-button--primary")]',
-                    '//button[contains(@class, "jobs-apply-button") and contains(@aria-label, "application")]',
+                    
+                    # Priority 2: Review button (after all form pages)
+                    '//button[contains(@aria-label, "Review your application")]',
+                    '//button[contains(@aria-label, "Review")]',
+                    '//button[contains(text(), "Review")]',
+                    '//button[contains(text(), "Review your application")]',
+                    
+                    # Priority 3: Submit button (final step after review)
+                    '//button[contains(@aria-label, "Submit application")]',
+                    '//button[contains(text(), "Submit application")]',
+                    '//button[contains(text(), "Submit")]',
+                    
+                    # Fallback: Generic primary buttons (if specific text not found)
                     '//footer//button[contains(@class, "artdeco-button--primary")]',
+                    '//button[contains(@class, "artdeco-button--primary")]',
                 ]
                 
                 button_found = False
@@ -725,27 +753,45 @@ class JobApplicationManager:
                             # Get button text for logging
                             button_text = button.text or button.get_attribute("aria-label") or "button"
                             
+                            # Determine step type for better logging
+                            if "review" in button_text.lower():
+                                step_type = "📋 Review"
+                            elif "submit" in button_text.lower():
+                                step_type = "✅ Submit"
+                            elif "next" in button_text.lower() or "continue" in button_text.lower():
+                                step_type = "➡️ Next"
+                            else:
+                                step_type = "▶️ Proceed"
+                            
                             # Click using JavaScript (more reliable)
                             try:
                                 self.driver.execute_script("arguments[0].click();", button)
-                                self.log(f"Clicked: {button_text}", "info")
+                                self.log(f"Step {step + 1}: {step_type} - Clicked '{button_text}'", "info")
                             except:
                                 button.click()
-                                self.log(f"Clicked: {button_text}", "info")
+                                self.log(f"Step {step + 1}: {step_type} - Clicked '{button_text}'", "info")
                             
                             button_found = True
-                            time.sleep(2)  # Wait for next step to load (increased from 1.5s)
+                            
+                            # Special handling for Review button - wait longer for page to load
+                            if "review" in button_text.lower():
+                                self.log("⏳ Loading review page...", "info")
+                                time.sleep(3)  # Review page takes longer to load
+                            else:
+                                time.sleep(2.5)  # Standard wait for next step
                             
                             # Check if we successfully submitted (look for confirmation)
                             try:
                                 confirmation_selectors = [
                                     '//h3[contains(text(), "Application sent")]',
                                     '//h3[contains(text(), "Your application was sent")]',
+                                    '//div[contains(@class, "artdeco-modal") and contains(., "Application sent")]',
                                     '//*[contains(text(), "successfully submitted")]',
+                                    '//h2[contains(text(), "Application sent")]',
                                 ]
                                 for conf_selector in confirmation_selectors:
-                                    if try_xp(self.driver, conf_selector, timeout=1):
-                                        self.log("✅ Application submitted successfully!", "success")
+                                    if try_xp(self.driver, conf_selector, timeout=2):
+                                        self.log("🎉 Application submitted successfully!", "success")
                                         self.applied_count += 1
                                         return True
                             except:
