@@ -44,6 +44,16 @@ class AIHandler:
                 self._init_gemini()
             elif self.provider == "deepseek":
                 self._init_deepseek()
+            elif self.provider == "groq":
+                self._init_groq()
+            elif self.provider == "anthropic":
+                self._init_anthropic()
+            elif self.provider == "cohere":
+                self._init_cohere()
+            elif self.provider == "kimi":
+                self._init_kimi()
+            elif self.provider == "together":
+                self._init_together()
             else:
                 print(f"Warning: Unknown AI provider '{self.provider}', defaulting to OpenAI-compatible")
                 self._init_openai()
@@ -109,6 +119,89 @@ class AIHandler:
             self.enabled = False
         except Exception as e:
             print(f"Error initializing DeepSeek: {e}")
+            self.enabled = False
+    
+    def _init_groq(self):
+        """Initialize Groq client (OpenAI-compatible, FREE & FAST!)"""
+        try:
+            from openai import OpenAI
+            
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.groq.com/openai/v1"
+            )
+            print(f"Groq client initialized (Model: {self.model or 'llama-3.1-70b-versatile'})")
+            print("⚡ Using Groq - Ultra fast & free!")
+        except ImportError:
+            print("Error: openai library not installed. Run: pip install openai")
+            self.enabled = False
+        except Exception as e:
+            print(f"Error initializing Groq: {e}")
+            self.enabled = False
+    
+    def _init_anthropic(self):
+        """Initialize Anthropic Claude client"""
+        try:
+            from anthropic import Anthropic
+            
+            self.client = Anthropic(api_key=self.api_key)
+            self.client_type = "anthropic"
+            print(f"Anthropic Claude initialized (Model: {self.model or 'claude-3-sonnet-20240229'})")
+        except ImportError:
+            print("Error: anthropic library not installed. Run: pip install anthropic")
+            self.enabled = False
+        except Exception as e:
+            print(f"Error initializing Anthropic: {e}")
+            self.enabled = False
+    
+    def _init_cohere(self):
+        """Initialize Cohere client"""
+        try:
+            import cohere
+            
+            self.client = cohere.Client(self.api_key)
+            self.client_type = "cohere"
+            print(f"Cohere client initialized (Model: {self.model or 'command-r-plus'})")
+        except ImportError:
+            print("Error: cohere library not installed. Run: pip install cohere")
+            self.enabled = False
+        except Exception as e:
+            print(f"Error initializing Cohere: {e}")
+            self.enabled = False
+    
+    def _init_kimi(self):
+        """Initialize Moonshot AI / Kimi client (OpenAI-compatible)"""
+        try:
+            from openai import OpenAI
+            
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.moonshot.cn/v1"
+            )
+            print(f"Moonshot AI (Kimi) initialized (Model: {self.model or 'moonshot-v1-32k'})")
+            print("🌙 Using Kimi - Long context & cheap!")
+        except ImportError:
+            print("Error: openai library not installed. Run: pip install openai")
+            self.enabled = False
+        except Exception as e:
+            print(f"Error initializing Kimi: {e}")
+            self.enabled = False
+    
+    def _init_together(self):
+        """Initialize Together AI client (OpenAI-compatible)"""
+        try:
+            from openai import OpenAI
+            
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.together.xyz/v1"
+            )
+            print(f"Together AI initialized (Model: {self.model or 'meta-llama/Llama-3-70b-chat-hf'})")
+        except ImportError:
+            print("Error: openai library not installed. Run: pip install openai")
+            self.enabled = False
+        except Exception as e:
+            print(f"Error initializing Together AI: {e}")
             self.enabled = False
     
     def test_connection(self) -> Dict[str, Any]:

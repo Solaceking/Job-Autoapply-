@@ -13,6 +13,7 @@ __all__ = [
     'helpers',
     'human_behavior',
     'open_chrome',
+    'qa_database',
     'question_handler',
     'settings_manager',
 ]

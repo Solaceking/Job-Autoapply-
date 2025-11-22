@@ -4,6 +4,8 @@ helpers to interact with question widgets.
 
 The module exposes `QuestionHandler` with a simple method `answer_questions` that
 accepts a list of question web elements and a mapping of known answers.
+
+Enhanced with AI integration for intelligent question answering.
 """
 from typing import Callable, Dict, Any, List, Optional, Tuple
 import re
@@ -12,10 +14,50 @@ LogCallback = Optional[Callable[[str, str], None]]
 
 
 class QuestionHandler:
-    def __init__(self, driver, log_cb: LogCallback = None):
+    def __init__(self, driver, log_cb: LogCallback = None, job_context: Optional[Dict[str, str]] = None):
         self.driver = driver
         self.log = log_cb or (lambda level, msg: None)
+        self.job_context = job_context or {}  # Store job context for AI
+        self.ai_handler = None
+        self.use_ai = False
+        self.qa_database = None
+        
+        # Initialize AI if enabled
+        try:
+            from config.secrets import use_AI
+            self.use_ai = use_AI
+            if self.use_ai:
+                from modules.ai_handler import ai_handler
+                self.ai_handler = ai_handler
+                self.log('info', '✅ AI Question Answering enabled')
+        except Exception as e:
+            self.log('warning', f'AI not available: {e}')
+            self.use_ai = False
+        
+        # Initialize Q&A Database
+        try:
+            from modules.qa_database import QADatabase
+            self.qa_database = QADatabase(log_cb=log_cb)
+        except Exception as e:
+            self.log('warning', f'Q&A Database not available: {e}')
 
+    def _build_ai_context(self) -> str:
+        """Build context string for AI from job information."""
+        context_parts = []
+        
+        if self.job_context.get('title'):
+            context_parts.append(f"Job Title: {self.job_context['title']}")
+        if self.job_context.get('company'):
+            context_parts.append(f"Company: {self.job_context['company']}")
+        if self.job_context.get('location'):
+            context_parts.append(f"Location: {self.job_context['location']}")
+        if self.job_context.get('description'):
+            # Limit description to 500 chars
+            desc = self.job_context['description'][:500]
+            context_parts.append(f"Job Description: {desc}")
+        
+        return "\n".join(context_parts) if context_parts else None
+    
     def normalize_question_text(self, text: str) -> str:
         """Normalize question text to a compact fingerprint used for matching answers."""
         if not text:
@@ -68,43 +110,70 @@ class QuestionHandler:
             qtext = self.normalize_question_text(text)
             matched = self.match_answer(qtext, answers_map)
 
-            # If no match or low score, optionally consult LLM fallback (if enabled)
+            # If no match or low score, try AI/Database
             answer = None
             score = 0.0
+            answer_source = 'static'  # Track where answer came from
+            
             if matched is None:
                 self.log('warning', f'No match for question: {qtext}')
             else:
                 answer, score = matched
 
-            # If match missing or below confidence, try LLM fallback if available
+            # If match missing or below confidence, try AI/Database
             if (matched is None) or (score < min_score):
-                try:
-                    from modules.llm_fallback import get_llm
-                    llm = get_llm()
-                    if llm and llm.is_enabled():
-                        # pass the visible text as context
-                        ctx = (question_element.text or '') if question_element is not None else None
-                        llm_answer = llm.call_llm(qtext, context=ctx)
-                        if llm_answer:
-                            self.log('info', f'LLM provided fallback answer for question: {qtext}')
-                            answer = llm_answer
-                            # mark score as 0 to indicate machine-sourced
-                            score = 0.0
-                            # proceed to fill using LLM answer
-                        else:
-                            # no LLM answer available; if original match was low confidence, skip
-                            if matched is None:
-                                return {'status': 'skipped', 'reason': 'no_answer', 'score': 0.0}
-                            if score < min_score:
-                                self.log('warning', f'Low confidence match for question (score={score:.2f}): {qtext}')
-                                return {'status': 'skipped', 'reason': 'low_confidence', 'score': score}
-                except Exception:
-                    # If anything fails when calling LLM, fallback to prior behavior
+                ai_answer = None
+                
+                # Step 1: Check Q&A Database first (fastest)
+                if self.qa_database:
+                    try:
+                        db_result = self.qa_database.find_similar_question(text, threshold=0.8)
+                        if db_result:
+                            ai_answer = db_result['answer']
+                            answer_source = 'database'
+                            self.log('info', f'📚 Using answer from Q&A database (ID: {db_result["id"]})')
+                            # Update usage stats
+                            self.qa_database.update_usage(db_result['id'])
+                    except Exception as e:
+                        self.log('warning', f'Q&A Database lookup failed: {e}')
+                
+                # Step 2: If not in database, try AI
+                if not ai_answer and self.use_ai and self.ai_handler:
+                    try:
+                        # Build context for AI
+                        context = self._build_ai_context()
+                        ai_answer = self.ai_handler.answer_question(text, context)
+                        
+                        if ai_answer:
+                            answer_source = 'ai'
+                            self.log('info', f'🤖 AI generated answer for: {text[:50]}...')
+                            
+                            # Store in database for future use
+                            if self.qa_database:
+                                try:
+                                    self.qa_database.store_question(
+                                        question=text,
+                                        answer=ai_answer,
+                                        job_title=self.job_context.get('title', ''),
+                                        company=self.job_context.get('company', ''),
+                                        job_context=context
+                                    )
+                                except Exception as e:
+                                    self.log('warning', f'Failed to store Q&A: {e}')
+                    except Exception as e:
+                        self.log('error', f'AI answer generation failed: {e}')
+                
+                # Use AI answer if we got one
+                if ai_answer:
+                    answer = ai_answer
+                    score = 0.9  # High score for AI answers
+                else:
+                    # No AI answer available
                     if matched is None:
-                        return {'status': 'skipped', 'reason': 'no_answer', 'score': 0.0}
+                        return {'status': 'skipped', 'reason': 'no_answer', 'score': 0.0, 'source': 'none'}
                     if score < min_score:
                         self.log('warning', f'Low confidence match for question (score={score:.2f}): {qtext}')
-                        return {'status': 'skipped', 'reason': 'low_confidence', 'score': score}
+                        return {'status': 'skipped', 'reason': 'low_confidence', 'score': score, 'source': 'static'}
 
             # find input inside question_element
             input_el = None
@@ -149,7 +218,7 @@ class QuestionHandler:
                     self.log('error', f'Failed to type answer: {e}')
                     return {'status': 'failed', 'reason': 'typing_failed', 'score': score}
 
-            return {'status': 'answered', 'value': answer, 'score': score}
+            return {'status': 'answered', 'value': answer, 'score': score, 'source': answer_source}
         except Exception as e:
             self.log('error', f'Exception while answering question: {e}')
             return {'status': 'failed', 'reason': str(e), 'score': 0.0}
